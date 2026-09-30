@@ -87,7 +87,7 @@ couchErrorMessage e = case e of
   ConnectionError detail -> "não consegui falar com o CouchDB: " <> detail
   BadResponse detail -> "resposta inesperada do CouchDB: " <> detail
   DecodeError detail -> "não consegui ler a resposta: " <> detail
-  NotFound what -> "o CouchDB respondeu 404: " <> what
+  NotFound what -> "não achei " <> what
   Conflict detail -> "conflito de revisão, alguém mexeu antes: " <> detail
 
 -- | Configuração a partir do ambiente:
@@ -209,7 +209,17 @@ ensureQSOIndex cfg =
     Left err -> Left err
 
 getDoc :: Config -> String -> Aff (Either CouchError Json)
-getDoc cfg docId = send cfg GET (dbUrl cfg ("/" <> percentEncode docId)) Nothing
+getDoc cfg docId =
+  send cfg GET (dbUrl cfg ("/" <> percentEncode docId)) Nothing
+    <#> missingDoc docId
+
+-- | O @404@ desta rota é o documento que não existe. O corpo da resposta dizia
+-- | isso em JSON (@@{\"reason\":\"missing\"}@@); o @_id@ pedido diz melhor, e é o
+-- | que a pessoa consegue conferir e corrigir.
+missingDoc :: String -> Either CouchError Json -> Either CouchError Json
+missingDoc docId result = case result of
+  Left (NotFound _) -> Left (NotFound ("o documento " <> docId))
+  other -> other
 
 -- | @PUT@ de um documento. Com @_rev@ no corpo é atualização, sem é criação.
 putDoc :: Config -> Json -> Aff (Either CouchError Json)
@@ -229,7 +239,9 @@ deleteDoc cfg docId rev =
 
 -- | @POST _find@: consulta Mango.
 findDocs :: Config -> Json -> Aff (Either CouchError Json)
-findDocs cfg selector = send cfg POST (dbUrl cfg "/_find") (bodyFor selector)
+findDocs cfg selector =
+  send cfg POST (dbUrl cfg "/_find") (bodyFor selector)
+    <#> missingDb cfg
 
 -- | @GET _all_docs?include_docs=true@: atalho para listar tudo.
 allDocs :: Config -> Aff (Either CouchError Json)
@@ -239,6 +251,15 @@ allDocs cfg = send cfg GET (dbUrl cfg "/_all_docs?include_docs=true") Nothing
 changesSince :: Config -> String -> Aff (Either CouchError Json)
 changesSince cfg since =
   send cfg GET (dbUrl cfg ("/_changes?since=" <> percentEncode since <> "&include_docs=true")) Nothing
+    <#> missingDb cfg
+
+-- | O 404 nestas rotas é o banco que não existe, não um documento. O corpo da
+-- | resposta explicava isso, mas em JSON: @não achei o banco qsologbook@ diz o
+-- | mesmo em português e ainda diz qual banco.
+missingDb :: Config -> Either CouchError Json -> Either CouchError Json
+missingDb cfg result = case result of
+  Left (NotFound _) -> Left (NotFound ("o banco " <> cfg.dbName))
+  other -> other
 
 bodyFor :: Json -> Maybe RequestBody
 bodyFor json = Just (string (stringify json))

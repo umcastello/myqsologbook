@@ -27,7 +27,7 @@ import Data.Foldable (foldl, intercalate)
 import Data.String as Str
 import Data.Maybe (Maybe(..), fromMaybe, maybe)
 import Data.String.CodeUnits (fromCharArray)
-import Data.QSO (QSO, bandLabel, modeLabel, qslLabel)
+import Data.QSO (QSO, bandLabel, modeLabel, qslLabelPt)
 import Data.Station (Station, describeStation)
 
 -- | Cabeçalho e separador, com os rótulos em português.
@@ -51,7 +51,7 @@ renderQSOColumns qso =
   , bandLabel qso.band
   , modeLabel qso.mode
   , qso.rstSent <> "/" <> qso.rstRcvd
-  , qslLabel qso.qslStatus
+  , qslLabelPt qso.qslStatus
   ]
 
 -- | Lista vazia devolve texto vazio, e não uma tabela só com cabeçalho. Quem
@@ -109,7 +109,7 @@ changeColumns change =
   timestamp = map (\it -> it.timestamp) doc
   callsign = map (\it -> it.callsign) doc
   band = map (\it -> bandLabel it.band) doc
-  status = map (\it -> qslLabel it.qslStatus) doc
+  status = map (\it -> qslLabelPt it.qslStatus) doc
 
 -- | @table linhas cabecalho@ desenha a tabela, com a coluna mais larga
 -- | definindo a largura. Linhas com menos células que o cabeçalho são
@@ -171,6 +171,7 @@ renderUsage =
     , "  add       grava um QSO novo"
     , "  list      lista QSOs, com filtros"
     , "  show      mostra um QSO pelo _id"
+    , "  edit      corrige um QSO: edit <id> <flags>"
     , "  delete    apaga um QSO pelo _id"
     , "  qsl       muda o status de QSL: qsl <id> <status>"
     , "  sync      mostra o que mudou no _changes desde 0"
@@ -194,6 +195,8 @@ renderUsage =
     , "  --notes <texto>"
     , "  --qsl <status>"
     , "  --timestamp <iso8601>"
+    , ""
+    , "flags do edit: as mesmas do add, e so o que for citado muda"
     , ""
     , "flags do list:"
     , "  --callsign <indicativo>"

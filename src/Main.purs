@@ -36,6 +36,7 @@ import Data.QSO
   , parseBand
   , parseMode
   , parseQSLStatus
+  , qslLabelPt
   , callsignIssue
   , CallsignIssue(..)
   , qsoTimestampDay
@@ -57,6 +58,7 @@ import Logbook
   , loadStation
   , saveStation
   , setQSLStatus
+  , updateQSO
   , syncSince
   )
 import Node.Process (getArgs, nowTimestamp, printLine, setExitCode)
@@ -172,6 +174,17 @@ dispatch config command = case command of
                         , footerFor qsos
                             <> (if length qsos < built.limit then "" else " (pode haver mais)")
                         ])
+  Edit docId input -> do
+    found <- getQSO config docId
+    case found of
+      Left err -> pure (Left (RuntimeError (couchErrorMessage err)))
+      Right current -> case applyInput input current of
+        Left problem -> pure (Left (UsageError problem))
+        Right patched -> do
+          updated <- updateQSO config patched
+          pure $ case updated of
+            Left err -> Left (RuntimeError (couchErrorMessage err))
+            Right saved -> Right (["QSO atualizado.", ""] <> detail saved)
   Show docId -> do
     result <- getQSO config docId
     pure $ case result of
@@ -320,7 +333,7 @@ detail qso =
   , "modo:       " <> show qso.mode
   , "rst:        " <> qso.rstSent <> " / " <> qso.rstRcvd
   , "grid:       " <> fromMaybe "-" qso.grid
-  , "qsl:        " <> show qso.qslStatus
+  , "qsl:        " <> qslLabelPt qso.qslStatus
   , "dia:        " <> qsoTimestampDay qso
   ]
 
@@ -348,6 +361,36 @@ optional _ Nothing _ = Right Nothing
 optional label (Just raw) parse = case parse raw of
   Left problem -> Left ("valor inválido para " <> label <> ": " <> problem)
   Right value -> Right (Just value)
+
+-- | Aplica só as flags citadas em cima do QSO atual.
+-- |
+-- | O @_id@ e o @_rev@ viajam intactos no update do registro: sem eles o
+-- | CouchDB criaria um documento novo no lugar do antigo, e o QSO original
+-- | ficaria órfão. Campo ausente do rascunho fica como estava, para que
+-- | @edit --notes "..."@ não apague a banda por distração.
+applyInput :: QSOInput -> QSO -> Either String QSO
+applyInput input current = do
+  band <- optional "banda" input.band parseBand
+  mode <- optional "modo" input.mode parseMode
+  status <- optional "QSL" input.qslStatus parseQSLStatus
+  let callsign = fromMaybe current.callsign input.callsign
+  checkCallsign callsign
+  pure
+    current
+      { callsign = callsign
+      , band = fromMaybe current.band band
+      , mode = fromMaybe current.mode mode
+      , rstSent = fromMaybe current.rstSent input.rstSent
+      , rstRcvd = fromMaybe current.rstRcvd input.rstRcvd
+      , grid = maybe current.grid Just input.grid
+      , operatorName = maybe current.operatorName Just input.operatorName
+      , qth = maybe current.qth Just input.qth
+      , dxcc = maybe current.dxcc Just input.dxcc
+      , country = maybe current.country Just input.country
+      , notes = maybe current.notes Just input.notes
+      , qslStatus = fromMaybe current.qslStatus status
+      , timestamp = fromMaybe current.timestamp input.timestamp
+      }
 
 -- | Valida e monta o QSO do @add@. O @timestamp@ ausente vira agora.
 -- |

@@ -25,9 +25,9 @@ import Prelude
 
 import Data.Array (null, head, length, tail)
 import Data.Either (Either(..))
-import Data.Foldable (intercalate)
+import Data.Foldable (all, intercalate)
 import Data.Int (fromString)
-import Data.Maybe (Maybe(..), fromMaybe)
+import Data.Maybe (Maybe(..), fromMaybe, isNothing)
 import Data.QSO
   ( QSLStatus
   , allBands
@@ -36,7 +36,7 @@ import Data.QSO
   , bandLabel
   , modeLabel
   , parseQSLStatus
-  , qslLabel
+  , qslLabelPt
   )
 import Data.String (trim)
 
@@ -44,6 +44,7 @@ import Data.String (trim)
 data Command
   = Add QSOInput
   | List QSOInput
+  | Edit String QSOInput
   | Show String
   | Delete String
   | SetQSL String QSLStatus
@@ -95,7 +96,7 @@ emptyQSOInput =
   }
 
 qslHelp :: String
-qslHelp = intercalate ", " (map qslLabel allQSLStatuses)
+qslHelp = intercalate ", " (map qslLabelPt allQSLStatuses)
 
 -- | @argv@ já sem @node@ e sem o caminho do script.
 parseArgs :: Array String -> Either String Command
@@ -105,6 +106,7 @@ parseArgs argv =
     Just verb -> case verb of
       "add" -> parseAdd (restOf argv)
       "list" -> parseList (restOf argv)
+      "edit" -> parseEdit (restOf argv)
       "show" -> oneId "show" Show (restOf argv)
       "delete" -> oneId "delete" Delete (restOf argv)
       "qsl" -> parseSetQSL (restOf argv)
@@ -212,7 +214,13 @@ parseStation args
     Just value -> go (restOf rest) (setter (Just (trim value)) acc)
 
 parseAdd :: Array String -> Either String Command
-parseAdd args = Add <$> go args emptyQSOInput
+parseAdd args = Add <$> parseAddFlags args
+
+-- | Só as flags do @add@, sem embrulhar em comando. O @edit@ usa exatamente
+-- | esta gramática, e precisa do rascunho cru: casar com @Add draft@ para
+-- | desembrulhar o comando seria depender da ordem dos construtores.
+parseAddFlags :: Array String -> Either String QSOInput
+parseAddFlags args = go args emptyQSOInput
   where
   go remaining acc = case head remaining of
     Nothing -> Right acc
@@ -239,6 +247,48 @@ parseAdd args = Add <$> go args emptyQSOInput
   takeStr flag rest acc setter = case head rest of
     Nothing -> Left (flag <> " precisa de valor")
     Just value -> go (restOf rest) (setter (Just (trim value)) acc)
+
+-- | Parser de @edit@. Recebe o @_id@ e as mesmas flags do @add@, e só mexe
+-- | nos campos citados.
+-- |
+-- | Sem nenhuma flag o comando não teria o que gravar, e devolver "QSO
+-- | atualizado" sem ter mudado nada seria mentira. Por isso a rejeição é
+-- | explícita: o @_rev@ do documento seria reescrito à toa.
+parseEdit :: Array String -> Either String Command
+parseEdit rest =
+  case head rest of
+    Nothing -> Left "uso: edit <_id> [flags]"
+    Just raw ->
+      let docId = trim raw
+      in if docId == ""
+          then Left "edit precisa do _id do QSO"
+          else case parseAddFlags (restOf rest) of
+            Left problem -> Left problem
+            Right parsed ->
+              if touchesNothing parsed
+                then Left ("edit " <> docId <> " nao mudaria nada: informe ao menos uma flag")
+                else Right (Edit docId parsed)
+
+-- | O rascunho não mexe em nenhum campo gravável. O @year@ e o @limit@ ficam
+-- | de fora de propósito: são filtros do @list@, e @parseAdd@ já recusa as
+-- | flags deles antes de chegar aqui.
+touchesNothing :: QSOInput -> Boolean
+touchesNothing d =
+  all isNothing
+    [ d.callsign
+    , d.band
+    , d.mode
+    , d.grid
+    , d.rstSent
+    , d.rstRcvd
+    , d.operatorName
+    , d.qth
+    , d.dxcc
+    , d.country
+    , d.notes
+    , d.qslStatus
+    , d.timestamp
+    ]
 
 -- | Parser de @list@. Só filtros, nada de preenchimento.
 parseList :: Array String -> Either String Command

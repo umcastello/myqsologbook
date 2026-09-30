@@ -121,6 +121,7 @@ verbOf (Left err) = "erro: " <> err
 verbOf (Right cmd) = case cmd of
   Add _ -> "add"
   List _ -> "list"
+  Edit _ _ -> "edit"
   Show _ -> "show"
   Delete _ -> "delete"
   SetQSL _ _ -> "qsl"
@@ -141,6 +142,17 @@ qsoInputOf _ = Nothing
 inputOf :: Either String Command -> Maybe QSOInput
 inputOf (Right cmd) = qsoInputOf cmd
 inputOf (Left _) = Nothing
+
+-- | O @_id@ e o rascunho do @edit@, para os testes que verificam os dois de
+-- | uma vez. O @parseEdit@ reusa a gramática do @add@, então os mesmos testes
+-- | de flag valem para os dois comandos.
+editIdOf :: Command -> Maybe String
+editIdOf (Edit docId _) = Just docId
+editIdOf _ = Nothing
+
+editInputOf :: Command -> Maybe QSOInput
+editInputOf (Edit _ draft) = Just draft
+editInputOf _ = Nothing
 
 -- | O rascunho de @station@; @Nothing@ quando o comando não é @station@.
 stationOf :: Command -> Maybe (Maybe StationInput)
@@ -229,7 +241,7 @@ optionsTests = do
       -- | O status em português é o que o radioaficionado digita. Negar
       -- | @Enviado@ faria ele procurar na ajuda qual era o nome em inglês.
       case parseArgs ["qsl", "qso_1", "Enviado"] of
-        Right (SetQSL _ status) -> assertEq "Enviado" Sent status
+        Right (SetQSL _ status) -> assertEq "status" Sent status
         other -> abort ("esperava SetQSL: " <> verbOf other)
     it "so o id nao basta" do
       assertHas "falta o status" =<< expectLeft "qsl sem status" (parseArgs ["qsl", "qso_1"])
@@ -237,6 +249,31 @@ optionsTests = do
       assertHas "QSL inválido" =<< expectLeft "qsl ruim" (parseArgs ["qsl", "qso_1", "Talvez"])
     it "a mensagem de erro lista os status validos" do
       assertHas qslHelp =<< expectLeft "qsl sem status" (parseArgs ["qsl", "qso_1"])
+  describe "edit" do
+    -- | O @edit@ existe para corrigir um erro de digitacao sem apagar o
+    -- | registro. Por isso o @_id@ e obrigatorio e faz parte do comando.
+    it "pega o _id e as flags do add" do
+      let parsed = parseArgs [ "edit", " qso_1 ", "--band", "20m", "--notes", "chave curta" ]
+      case parsed of
+        Left err -> abort ("esperava Edit: " <> err)
+        Right cmd -> do
+          assertEq "id aparado" (Just "qso_1") (editIdOf cmd)
+          case editInputOf cmd of
+            Nothing -> abort ("esperava rascunho, veio " <> verbOf parsed)
+            Just draft -> do
+              assertEq "banda" (Just "20m") draft.band
+              assertEq "notas" (Just "chave curta") draft.notes
+    it "o _id e obrigatorio" do
+      assertHas "uso: edit" =<< expectLeft "sem id" (parseArgs [ "edit" ])
+      assertHas "precisa do _id" =<< expectLeft "id vazio" (parseArgs [ "edit", "", "--band", "20m" ])
+    it "sem flag nao mexe em nada" do
+      -- | Um "QSO atualizado" sem alteracao seria mentira, e ainda burnaria
+      -- | uma revisao do documento a toa.
+      assertHas "nao mudaria nada" =<< expectLeft "sem flag" (parseArgs [ "edit", "qso_1" ])
+    it "reusa a gramatica do add, inclusive nos erros" do
+      assertHas "--callsign precisa de valor" =<< expectLeft "flag solta" (parseArgs [ "edit", "qso_1", "--callsign" ])
+      assertHas "flag desconhecida para add" =<< expectLeft "flag de list" (parseArgs [ "edit", "qso_1", "--year", "2026" ])
+      assertEq "verbo" "edit" (verbOf (parseArgs [ "edit", "qso_1", "--band", "20m" ]))
   describe "add e list nao dividem flags" do
     -- | Os dois comandos compartilham o tipo @QSOInput@ mas não as flags, e a
     -- | separação é deliberada: aceitar @--band 20m@ no @add@ e ignorar a flag

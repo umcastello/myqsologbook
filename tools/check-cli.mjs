@@ -122,20 +122,22 @@ expect("list --band de outra banda nao acha", ["list", "--band", "40m"], {
 expect("list --limit segura o total", ["list", "--limit", "1"], { has: ["exibidos: 1"] });
 expect("show mostra o QSO", ["show", id], { has: ["indicativo: PY2ZZZ", "banda:      B20m"] });
 expect("show de id inexistente da erro", ["show", "qso_nao_existe"], {
-  code: 1, has: ["404"],
+  code: 1, has: ["não achei o documento qso_nao_existe"],
 });
 
 console.log("\nqsl e station");
 expect("qsl muda o status", ["qsl", id, "Enviado"], { code: 0 });
-expect("show reflete o novo status", ["show", id], { has: ["qsl:        Sent"] });
+expect("show reflete o novo status", ["show", id], { has: ["qsl:        enviado"] });
 expect("qsl com status invalido e erro de uso", ["qsl", id, "Qualquer"], {
   code: 2, has: ["QSL inválido"],
 });
-// | parseQSLStatus aceita o rotulo em disco ("Sent"), a traducao antiga
-// | ("enviado") e qualquer caixa. AAjuda mostra o rotulo em ingles, e um usuario
-// | que digitar "Enviado" espera que funcione.
+// | A exibicao e em portugues, mas o que fica gravado e o rotulo em ingles.
+// | parseQSLStatus aceita os dois, com qualquer caixa: quem digitar "Sent",
+// | vindo de um backup antigo, ou "enviado", do texto que a CLI mostra,
+// | funciona igual.
+expect("qsl aceita o status gravado em ingles", ["qsl", id, "Sent"], { code: 0 });
 expect("qsl aceita o status em portugues", ["qsl", id, "Enviado"], { code: 0 });
-expect("show mantem o status em ingles", ["show", id], { has: ["qsl:        Sent"] });
+expect("qsl recusa status que nao existe", ["qsl", id, "Confirmado demais"], { code: 2 });
 expect("station grava", [
   "station", "--callsign", CALL, "--grid", "GG66rj", "--name", "Fulano",
   "--rig", "IC-7300", "--antenna", "dipolo",
@@ -153,6 +155,26 @@ record("station guardou rig e antena no banco", [
   stationDoc.rig === "IC-7300" ? null : `rig veio ${JSON.stringify(stationDoc.rig)}`,
   stationDoc.antenna === "dipolo" ? null : `antenna veio ${JSON.stringify(stationDoc.antenna)}`,
 ].filter(Boolean), JSON.stringify(stationDoc));
+
+console.log("\nedit");
+// | O edit corrige um erro de digitacao sem apagar o registro. O que ele nao
+// | pode fazer e recriar o documento: sem o _rev preservation o CouchDB
+// | criaria um _id novo e o QSO antigo ficaria orfao.
+expect("edit muda so o campo citado", ["edit", id, "--band", "40m", "--notes", "corrigido"], {
+  has: ["QSO atualizado.", "banda:      B40m", "indicativo: PY2ZZZ"],
+});
+expect("edit preserva o _id", ["show", id], { has: ["indicativo: PY2ZZZ", "banda:      B40m"] });
+expect("edit nao mexe em campo ausente", ["edit", id, "--notes", "outra"], {
+  has: ["banda:      B40m", "modo:       CW"],
+});
+expect("edit recusa indicativo invalido", ["edit", id, "--callsign", "PY2ABC DEF"], {
+  code: 2, has: ["indicativo inválido"],
+});
+expect("edit recusa banda invalida", ["edit", id, "--band", "40n"], { code: 2, has: ["Banda desconhecida"] });
+expect("edit sem flag nao finge que atualizou", ["edit", id], { code: 2, has: ["nao mudaria nada"] });
+expect("edit de id inexistente", ["edit", "qso_nao_existe", "--band", "40m"], {
+  code: 1, has: ["não achei o documento qso_nao_existe"],
+});
 
 console.log("\nchanges e delete");
 expect("sync mostra a mudanca", ["sync"], { has: [id, "last_seq:"] });
@@ -180,9 +202,12 @@ expect("add com banda invalida tambem falha", ["add", "--callsign", "PY2ZZZ", "-
   code: 2, has: ["Banda desconhecida: 20n"],
 });
 expect("banda so com digitos e aceita", ["list", "--band", "20"], { code: 0 });
-expect("banco inexistente da erro", ["list"], { code: 1, has: ["404"] }, {
-  COUCHDB_DB: `${DB}_nao_existe`,
-});
+expect("banco inexistente da erro pelo nome", ["list"], {
+  code: 1, has: [`não achei o banco ${DB}_nao_existe`],
+}, { COUCHDB_DB: `${DB}_nao_existe` });
+expect("sync em banco inexistente tambem", ["sync"], {
+  code: 1, has: ["não achei o banco"],
+}, { COUCHDB_DB: `${DB}_nao_existe` });
 expect("sem credencial da erro", ["list"], { code: 1 }, { COUCHDB_USER: "", COUCHDB_PASSWORD: "" });
 
 console.log("\nlimpando");
