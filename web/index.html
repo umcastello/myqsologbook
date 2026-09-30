@@ -1,0 +1,316 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>qsologbook - verificação da camada de dados</title>
+<style>
+  :root {
+    color-scheme: light dark;
+    --ok: #1a7f37;
+    --fail: #b42318;
+    --muted: #6b7280;
+    --line: #d0d7de;
+  }
+  body {
+    font: 15px/1.5 system-ui, sans-serif;
+    margin: 0 auto;
+    padding: 2rem 1.25rem 4rem;
+    max-width: 60rem;
+  }
+  h1 { font-size: 1.35rem; margin: 0 0 .25rem; }
+  h2 { font-size: 1rem; margin: 2rem 0 .5rem; text-transform: uppercase; letter-spacing: .04em; color: var(--muted); }
+  p.lead { margin: 0 0 1.5rem; color: var(--muted); }
+  #summary { padding: .75rem 1rem; border: 1px solid var(--line); border-radius: 6px; font-weight: 600; }
+  #summary.ok { border-color: var(--ok); color: var(--ok); }
+  #summary.fail { border-color: var(--fail); color: var(--fail); }
+  table { border-collapse: collapse; width: 100%; margin-top: .5rem; }
+  th, td { text-align: left; padding: .4rem .6rem; border-bottom: 1px solid var(--line); vertical-align: top; }
+  th { font-size: .8rem; text-transform: uppercase; letter-spacing: .03em; color: var(--muted); }
+  td.verdict { width: 5.5rem; font-weight: 700; }
+  .pass { color: var(--ok); }
+  .fail { color: var(--fail); }
+  code { font-family: ui-monospace, monospace; font-size: .9em; }
+</style>
+</head>
+<body>
+<h1>qsologbook</h1>
+<p class="lead">
+  Verificação da camada de dados, rodada no navegador contra os módulos
+  compilados em <code>output/</code>. Ainda não há CouchDB nem interface de
+  verdade aqui: isto exercita só a lógica pura.
+</p>
+
+<div id="summary">carregando…</div>
+<div id="results"></div>
+
+<script type="module">
+import * as Base64 from "../output/Data.Base64/index.js";
+import * as QSO from "../output/Data.QSO/index.js";
+import * as Grid from "../output/Data.Maidenhead/index.js";
+import * as Station from "../output/Data.Station/index.js";
+import * as Codec from "../output/Data.QSO.Codec/index.js";
+import { Left, Right } from "../output/Data.Either/index.js";
+import { Just, Nothing } from "../output/Data.Maybe/index.js";
+
+// | Os construtores saem como classes neste output, então precisam de `new`.
+// | Construtor sem argumento (B20m, SSB, Pending, Nothing) é uma classe cuja
+// | instância única fica em `.value`; usar a classe direto passaria a função
+// | para dentro do código PureScript e quebraria o `case`.
+const just = v => new Just(v);
+const nothing = Nothing.value;
+const ctor = c => (typeof c === "function" && c.value !== undefined) ? c.value : c;
+
+// | atalhos para os valores de facto, já desembrulhados
+const B20 = ctor(QSO.B20m);
+const FT8 = ctor(QSO.FT8);
+const SSB = ctor(QSO.SSB);
+const CW = ctor(QSO.CW);
+
+const results = document.getElementById("results");
+const summary = document.getElementById("summary");
+
+let total = 0;
+let passed = 0;
+
+function ok(text) { return { ok: true, text: String(text) }; }
+function bad(text) { return { ok: false, text: String(text) }; }
+
+// | Desembrulha um Either do PureScript. O payload fica em `value0` e o
+// | construtor decide por `instanceof`, já que esta versão não emite `tag`.
+function unwrap(either) {
+  if (either instanceof Right) return ok(either.value0);
+  if (either instanceof Left) return bad(either.value0);
+  return bad("valor não reconhecido");
+}
+
+function isRight(e) { return e instanceof Right; }
+function isLeft(e) { return e instanceof Left; }
+function isJust(m) { return m instanceof Just; }
+
+function section(title) {
+  const h = document.createElement("h2");
+  h.textContent = title;
+  results.appendChild(h);
+  const table = document.createElement("table");
+  const head = document.createElement("tr");
+  for (const label of ["", "verificação", "resultado"]) {
+    const th = document.createElement("th");
+    th.textContent = label;
+    head.appendChild(th);
+  }
+  table.appendChild(head);
+  results.appendChild(table);
+  return table;
+}
+
+function run(table, name, result) {
+  total++;
+  if (result.ok) passed++;
+  const tr = document.createElement("tr");
+  const v = document.createElement("td");
+  v.className = "verdict " + (result.ok ? "pass" : "fail");
+  v.textContent = result.ok ? "passou" : "FALHOU";
+  const n = document.createElement("td");
+  n.textContent = name;
+  const d = document.createElement("td");
+  const code = document.createElement("code");
+  code.textContent = result.text;
+  d.appendChild(code);
+  tr.append(v, n, d);
+  table.appendChild(tr);
+}
+
+// --- Base64 -------------------------------------------------------------
+{
+  const t = section("Base64");
+  for (const s of ["user:senha-secreta", "Olá", "QSL-ção-ação", "📡 station"]) {
+    const back = Base64.decode(Base64.encode(s));
+    const r = isRight(back) ? ok(back.value0) : bad(back.value0);
+    run(t, `encode/decode de ${JSON.stringify(s)}`,
+      r.ok && r.text === s ? ok(r.text) : bad(`veio ${JSON.stringify(r.text)}`));
+  }
+  const ascii = Base64.encode("user:senha-secreta");
+  run(t, "encode ASCII bate com a referência",
+    ascii === "dXNlcjpzZW5oYS1zZWNyZXRh" ? ok(ascii) : bad(ascii));
+
+  const mime = Base64.decode("dXNl\n");
+  run(t, "quebra de linha MIME",
+    isRight(mime) && mime.value0 === "use" ? ok(mime.value0) : bad(unwrap(mime).text));
+
+  const junk = Base64.decode("dXNlcmUhR");
+  run(t, "recusa sobra de 1 caractere",
+    isLeft(junk) ? ok("recusou: " + junk.value0) : ok("aceitou, mas deveria recusar"));
+}
+
+// --- Maidenhead ---------------------------------------------------------
+{
+  const t = section("Maidenhead");
+  for (const g of ["JN58TD", "GG66QR", "IO91", "FN31pr"]) {
+    const r = unwrap(Grid.parseGrid(g));
+    run(t, `parseGrid ${g}`, r.ok ? ok(`${g} -> ${r.text}`) : r);
+  }
+  const badGrid = Grid.parseGrid("ZZ99");
+  run(t, "parseGrid ZZ99 rejeitado",
+    isLeft(badGrid)
+      ? ok(Grid.showGridError.show(badGrid.value0))
+      : ok("aceitou, mas deveria recusar"));
+
+  const coords = Grid.gridToCoordinates("JN58TD");
+  run(t, "gridToCoordinates JN58TD",
+    isRight(coords)
+      ? ok(Grid.formatCoordinates(coords.value0))
+      : bad(coords.value0));
+
+  // | Funções PureScript são curradas: em JS entra um argumento por vez.
+  // | E `distanceAndBearing` quer coordenadas, não grid.
+  const home = Grid.gridToCoordinates("JN58TD");
+  const azores = Grid.gridToCoordinates("GG66QR");
+  if (!isRight(home) || !isRight(azores)) {
+    run(t, "distância JN58TD -> GG66QR", bad("não consegui converter os grids"));
+  } else {
+    const leg = Grid.distanceAndBearing(home.value0)(azores.value0);
+    run(t, "JN58TD -> GG66QR", ok(
+      Grid.formatDistanceKm(leg.distanceKm) + ", " + Grid.formatBearing(leg.azimuthDeg)));
+  }
+
+  if (isRight(home)) {
+    const self = Grid.distanceAndBearing(home.value0)(home.value0);
+    run(t, "distância de JN58TD para si mesmo",
+      self.distanceKm < 0.001 ? ok(Grid.formatDistanceKm(self.distanceKm)) : bad("veio " + self.distanceKm));
+  }
+
+  const f = Grid.formatDistanceKm;
+  for (const [input, want] of [[0.85, "850 m"], [9.46, "9.5 km"], [12.34, "12 km"]]) {
+    run(t, `formatDistanceKm ${input}`,
+      f(input) === want ? ok(f(input)) : bad(`veio ${f(input)}, esperado ${want}`));
+  }
+}
+
+// --- Bandas e modos -----------------------------------------------------
+{
+  const t = section("Bandas e modos");
+  for (const [input, want] of [["20m", B20], ["20M", B20], ["B20m", B20], ["2m", ctor(QSO.B2m)]]) {
+    const r = QSO.parseBand(input);
+    run(t, `parseBand ${input}`,
+      isRight(r) && r.value0 === want
+        ? ok(QSO.bandLabel(r.value0))
+        : bad(unwrap(r).text));
+  }
+  const badBand = QSO.parseBand("7xyz");
+  run(t, "parseBand 7xyz rejeitado",
+    isLeft(badBand) ? ok(badBand.value0) : ok("aceitou, mas deveria recusar"));
+
+  for (const [input, want] of [["ft8", FT8], ["SSB", SSB], ["BSSB", SSB], ["cw", CW]]) {
+    const r = QSO.parseMode(input);
+    run(t, `parseMode ${input}`,
+      isRight(r) && r.value0 === want
+        ? ok(QSO.modeTag(r.value0))
+        : bad(unwrap(r).text));
+  }
+
+  const fromFreq = QSO.bandFromMhz(14.2);
+  run(t, "bandFromMhz 14.2",
+    isJust(fromFreq) && fromFreq.value0 === ctor(QSO.B20m)
+      ? ok(QSO.bandLabel(fromFreq.value0))
+      : bad("nenhuma banda"));
+}
+
+// --- Codec --------------------------------------------------------------
+{
+  const t = section("Codec JSON");
+  const qso = {
+    id: just("qso:demo"),
+    rev: just("1-abc"),
+    callsign: "PY2UQH",
+    band: ctor(QSO.B20m),
+    mode: ctor(QSO.FT8),
+    rstSent: "-08",
+    rstRcvd: "-12",
+    grid: just("GG66"),
+    operatorName: just("Ulisses"),
+    qth: nothing,
+    dxcc: just("Brazil"),
+    country: just("Brasil"),
+    notes: just("primeiro contato"),
+    qslStatus: ctor(QSO.Pending),
+    timestamp: "2026-09-29T12:00:00.000Z"
+  };
+  const encoded = Codec.encodeQSO(qso);
+  const text = JSON.stringify(encoded);
+  run(t, "encodeQSO gera documento com os campos", text.includes("PY2UQH") ? ok(text) : bad(text));
+
+  const back = Codec.decodeQSO(encoded);
+  run(t, "decodeQSO faz roundtrip", isRight(back)
+    ? ok(back.value0.callsign + " / " + QSO.bandLabel(back.value0.band)
+          + " / " + QSO.modeTag(back.value0.mode))
+    : bad(back.value0.value0));
+
+  const legacy = JSON.parse('{"_id":"qso:antigo","_rev":"3-x","type":"qso","callsign":"LU1ABC","band":"B20m","mode":"BSSB","rstSent":"59","rstRcvd":"59","timestamp":"2019-05-06T07:08:09.000Z"}');
+  const lr = Codec.decodeQSO(legacy);
+  run(t, "lê documento legado B20m/BSSB", isRight(lr)
+    ? ok(lr.value0.callsign + " / " + QSO.bandLabel(lr.value0.band) + " / " + QSO.modeTag(lr.value0.mode))
+    : bad(lr.value0));
+
+  const sel = Codec.filterSelector(Codec.noFilter);
+  run(t, "filterSelector sem filtros", ok(JSON.stringify(sel)));
+}
+
+// --- Estação ------------------------------------------------------------
+{
+  const t = section("Estação");
+  const st = Station.newStation({
+    callsign: just("PY2UQH"),
+    grid: just("JN58TD"),
+    operatorName: nothing,
+    rig: just("IC-7300"),
+    antenna: nothing
+  });
+  run(t, "describeStation", ok(Station.describeStation(st)));
+
+  const merged = Station.mergeStationDraft(st)({
+    callsign: nothing,
+    grid: just("jn58td"),
+    operatorName: nothing,
+    rig: just("FT-991"),
+    antenna: nothing
+  });
+  run(t, "mergeStationDraft normaliza grid e troca rig",
+    merged.callsign === "PY2UQH" && merged.grid === "JN58TD" && merged.rig.value0 === "FT-991"
+      ? ok(merged.callsign + " / " + merged.grid + " / " + merged.rig.value0)
+      : bad(JSON.stringify(merged)));
+
+  const withQso = Station.stationToQso(st)({
+    id: nothing,
+    rev: nothing,
+    callsign: "LU1ABC",
+    band: ctor(QSO.B20m),
+    mode: ctor(QSO.SSB),
+    rstSent: "59",
+    rstRcvd: "59",
+    grid: just("GG66QR"),
+    operatorName: nothing,
+    qth: nothing,
+    dxcc: nothing,
+    country: nothing,
+    notes: nothing,
+    qslStatus: ctor(QSO.Pending),
+    timestamp: "2026-09-29T12:00:00.000Z"
+  });
+  run(t, "stationToQso calcula distância", isJust(withQso)
+    ? ok(Grid.formatDistanceKm(withQso.value0.distanceKm) + ", " + Grid.formatBearing(withQso.value0.azimuthDeg))
+    : bad("sem distância"));
+}
+
+// --- Resultado ----------------------------------------------------------
+const allOk = passed === total;
+summary.className = allOk ? "ok" : "fail";
+summary.textContent = allOk
+  ? `${passed} de ${total} verificações passaram`
+  : `${total - passed} de ${total} verificações FALHARAM`;
+document.title = (allOk ? "OK " : "FALHA ") + passed + "/" + total + " - qsologbook";
+
+window.__qsologbookResult = { total, passed, allOk };
+</script>
+</body>
+</html>

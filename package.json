@@ -1,0 +1,27 @@
+{
+  "name": "myqsologbook",
+  "version": "0.1.0",
+  "description": "Logbook de QSOs offline-first com interface de linha de comando",
+  "main": "qsologbook.mjs",
+  "directories": {
+    "test": "test"
+  },
+  "scripts": {
+    "build": "spago build && spago bundle --platform node --outfile qsologbook.mjs && node tools/shebang.mjs qsologbook.mjs",
+    "test": "spago test",
+    "cli": "node qsologbook.mjs",
+    "check:web": "node tools/check-web.mjs",
+    "check:cli": "node tools/check-cli.mjs",
+    "serve": "python3 -m http.server 8080 --bind 127.0.0.1"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "commonjs",
+  "dependencies": {
+    "xhr2": "^0.2.1"
+  },
+  "bin": {
+    "qsologbook": "./qsologbook.mjs"
+  }
+}

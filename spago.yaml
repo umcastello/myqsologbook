@@ -1,0 +1,27 @@
+package:
+  name: myqsologbook
+  dependencies:
+    - affjax-node
+    - argonaut-codecs
+    - argonaut-core
+    - arrays
+    - console
+    - effect
+    - enums
+    - either
+    - foldable-traversable
+    - lists
+    - maybe
+    - nullable
+    - numbers
+    - orders
+    - prelude
+    - strings
+  test:
+    main: Test.Main
+    dependencies:
+      - test-unit
+workspace:
+  packageSet:
+    registry: 81.1.0
+  extraPackages: {}
