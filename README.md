@@ -1,8 +1,7 @@
 # qsologbook
 
-Diário de campo de radioamador, gravado direto no CouchDB. Um QSOp é um
-documento; o banco é o único estado, e a CLI e a página web são duas formas de
-mexer nele.
+Diário de campo de radioamador, gravado direto no CouchDB. Um QSO é um
+documento, e o banco é o único estado.
 
 Sem servidor próprio, sem framework: um bundle Node, uma biblioteca de
 efektos em PureScript e o CouchDB embaixo.
@@ -100,6 +99,15 @@ O que fica gravado é o rótulo em inglês do status de QSL (`Pending`, `Sent`),
 porque o documento já no disco usa esse valor; a CLI mostra e aceita os dois,
 em português e em inglês, com qualquer caixa.
 
+## Manual
+
+`manual-qsologbook.md` é um roteiro que dá para seguir do zero: o que cada
+comando faz, por que existe e como conferir que funcionou. O PDF sai de lá:
+
+```sh
+npm run manual       # gera manual-qsologbook.pdf com pandoc + xelatex
+```
+
 ## Verificar
 
 ```sh
@@ -115,6 +123,11 @@ códigos de saída. `check:cli` sobe o que só aparece com HTTP: cria um banco
 mesmo quando uma checagem falha. `check:web` precisa do `npm run serve` no ar
 em `127.0.0.1:8080` e de um Chromium no `PATH`.
 
+A página em `web/` não é a interface do diário: ela roda a camada de dados pura
+no navegador e mostra o resultado das asserções. Ela não fala com o CouchDB —
+um `add` pela CLI não aparece nela. É o passo anterior a uma interface de
+verdade, que ainda não existe.
+
 Nenhum dos três toca o banco real.
 
 ## Como está organizado
@@ -128,7 +141,7 @@ Nenhum dos três toca o banco real.
 | `src/CLI/Options.purs` | `argv` virando comando |
 | `src/CLI/Report.purs` | saída em texto: tabela, detalhe, ajuda |
 | `src/Main.purs` | despacho do comando e validação |
-| `web/index.html` | a mesma coisa no navegador, sem build |
+| `web/index.html` | página que roda a camada de dados no navegador |
 | `tools/` | verificadores e o shebang do bundle |
 
 Duas decisões que valem saber antes de mexer:

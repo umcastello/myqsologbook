@@ -12,7 +12,8 @@
     "cli": "node qsologbook.mjs",
     "check:web": "node tools/check-web.mjs",
     "check:cli": "node tools/check-cli.mjs",
-    "serve": "python3 -m http.server 8080 --bind 127.0.0.1"
+    "serve": "python3 -m http.server 8080 --bind 127.0.0.1",
+    "manual": "pandoc manual-qsologbook.md -o manual-qsologbook.pdf --pdf-engine=xelatex -V geometry:margin=2.5cm -V mainfont=\"DejaVu Sans\" -V monofont=\"DejaVu Sans Mono\" -V papersize=a4 --toc --toc-depth=2 -V colorlinks=true -V linkcolor=blue"
   },
   "keywords": [],
   "author": "",
