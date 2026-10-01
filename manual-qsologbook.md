@@ -34,7 +34,7 @@ export COUCHDB_DB=qsologbook_briga
 
 **Verificação:** rode `echo $COUCHDB_DB` — deve imprimir `qsologbook_briga`.
 
-> ⚠️ **Aviso de segurança:** se em algum momento você colocou `COUCHDB_PASSWORD` em texto puro no `~/.bashrc` ou neste transcript, **rotacione a senha no CouchDB** e atualize o arquivo. Variáveis de ambiente não são lugar seguro para segredos de longa duração.
+> **Aviso de segurança:** se em algum momento você colocou `COUCHDB_PASSWORD` em texto puro no `~/.bashrc` ou neste transcript, **rotacione a senha no CouchDB** e atualize o arquivo. Variáveis de ambiente não são lugar seguro para segredos de longa duração.
 
 ---
 
