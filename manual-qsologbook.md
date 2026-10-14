@@ -199,6 +199,8 @@ exibidos: 2
 | `--qsl` | `--qsl confirmado` | Só com esse status |
 | `--year` | `--year 2026` | Só desse ano |
 | `--limit` | `--limit 5` | No máximo N linhas |
+| `--distance` | `--distance` | Acrescenta a coluna `km` |
+| `--from` | `--from GG66RJ` | Origem da medida, em vez da estação |
 
 **Roteiro de teste de filtros:**
 
@@ -213,6 +215,26 @@ exibidos: 2
 
 Cada um deve reduzir a lista. Combine filtros (`--band 15m --qsl confirmado`) para ver a interseção.
 
+**Distância:** a flag `--distance` acrescenta uma coluna `km` com a distância
+entre a sua estação e cada QSO, calculada a partir dos dois grids Maidenhead.
+
+```bash
+./qsologbook.mjs list --distance
+```
+
+```
+_id                   | quando               | indicativo | banda | modo | rst s/r | qsl      | km
+----------------------+---------------------+-----------+------+-----+--------+---------+-------
+qso_2026-10-14_PY2SSH | 2026-10-14T11:34:56Z | PY2SSH     | 20m   | CW   | 599/599 | pendente | 92 km
+qso_2026-10-14_K1ABC  | 2026-10-14T11:34:56Z | K1ABC      | 15m   | FT8  | -15/-10 | pendente | 7748 km
+exibidos: 2
+```
+
+Quem não tem grid (nem o QSO, nem a estação) sai como `-`, nunca um número
+inventado. A origem é o grid gravado em `station`; `--from <grid>` troca a
+origem só para aquela chamada, sem tocar no banco. `--from` sozinho, sem
+`--distance`, é recusado: uma flag que não muda nada seria pior que o erro.
+
 ---
 
 ## 7. Inspecionando um QSO: `show`
@@ -224,6 +246,23 @@ Cada um deve reduzir a lista. Combine filtros (`--band 15m --qsl confirmado`) pa
 ```
 
 **Por que usar:** o `list` mostra só colunas resumidas. O `show` revela `_rev`, `grid`, `notes`, `dia`, e tudo mais.
+
+**Distância e azimute:** além dos campos, o `show` acrescenta a distância em km
+e o azimute (a direção, em graus e em pontos cardeais) da sua estação até o QSO,
+sempre a partir do grid da `station`:
+
+```
+distancia:  1609 km
+azimute:    SW (221°)
+```
+
+Com `--from <grid>` a medida muda de origem, sem alterar o documento:
+
+```bash
+./qsologbook.mjs show qso_2026-09-30_PY2SSH --from FN31pr
+```
+
+Se faltar grid de um dos lados, a linha explica o motivo no lugar do número.
 
 **Teste:** compare a saída de `show` antes e depois de um `edit` — veja o `_rev` mudar.
 
@@ -453,8 +492,8 @@ curl -X DELETE http://127.0.0.1:5984/qsologbook_briga -u "admin:$COUCHDB_PASSWOR
 | `setup` | Cria banco+índice | — |
 | `station` | Lê/grava estação | `--callsign --grid --name --rig --antenna` |
 | `add` | Cria QSO | `--callsign --band --mode --rst-sent --rst-rcvd --notes --timestamp …` |
-| `list` | Lista QSOs | `--callsign --band --mode --qsl --year --limit` |
-| `show` | Vê 1 QSO | `<id>` |
+| `list` | Lista QSOs | `--callsign --band --mode --qsl --year --limit --distance --from` |
+| `show` | Vê 1 QSO | `<id> [--from]` |
 | `edit` | Corrige QSO | `<id>` + flags do `add` |
 | `qsl` | Muda status QSL | `<id> <status>` |
 | `delete` | Apaga QSO | `<id>` |

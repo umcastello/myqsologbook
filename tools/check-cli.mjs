@@ -176,6 +176,51 @@ expect("edit de id inexistente", ["edit", "qso_nao_existe", "--band", "40m"], {
   code: 1, has: ["não achei o documento qso_nao_existe"],
 });
 
+console.log("\ndistancia");
+// | A distancia sai do grid da estacao ate o grid do QSO. O QSO do ciclo foi
+// | gravado sem grid, entao ele serve de caso negativo; um QSO com o mesmo grid
+// | da estacao prova a conta, porque o resultado e 0 m e nao depende de formula.
+const sameGrid = cli([
+  "add", "--callsign", "ZEROAA", "--band", "20m", "--mode", "CW", "--grid", "GG66rj",
+]);
+const sameId = sameGrid.out.match(/_id:\s+(\S+)/)?.[1];
+record("add com grid para medir", [
+  ...(sameId ? [] : ["sem _id: " + sameGrid.out.trim().split("\n")[0].slice(0, 80)]),
+], sameGrid.out);
+
+expect("show sem grid no QSO diz por que", ["show", id], {
+  has: ["distancia:  - (QSO sem grid)"],
+});
+if (sameId) {
+  // | Mesmo ponto e mesmo grid: 0 m e azimute N (0), que sao valores exatos e
+  // | nao arredondamento. Se a conta inverter origem e destino, isto muda.
+  expect("show mede do grid da estacao", ["show", sameId], {
+    has: ["distancia:  0 m", "azimute:    N (0°)"],
+  });
+  // | --from troca a origem e a medida tem de mudar junto: a mesma distancia
+  // | seria sinal de que a flag foi ignorada.
+  expect("show --from troca a origem", ["show", sameId, "--from", "FN31pr"], {
+    has: ["distancia:"], missing: ["distancia:  0 m"],
+  });
+  expect("show --from com grid invalido e erro de uso", ["show", sameId, "--from", "zz"], {
+    code: 2, has: ["grid inválido para --from"],
+  });
+}
+expect("list --distance acrescenta a coluna", ["list", "--distance"], { has: ["km"] });
+expect("list --distance mede o QSO com grid", ["list", "--distance", "--from", "GG66rj"], {
+  has: ["0 m"],
+});
+// | "| -" so aparece na celula do QSO sem grid: o separador usa "-+" e os
+// | demais QSOs trazem numero. E o "-" da ultima coluna, nao o das bordas.
+expect("list --distance mantem o traco sem grid", ["list", "--distance"], { has: ["| -"] });
+expect("list --from sozinho e recusado", ["list", "--from", "GG66"], {
+  code: 2, has: ["junto com --distance"],
+});
+expect("list sem --distance nao ganha coluna", ["list"], { missing: ["km"] });
+// | O QSO de distancia sai de cena para o resto do ciclo seguir contando um so
+// | QSO, como antes de o calculo existir.
+if (sameId) expect("limpa o QSO de distancia", ["delete", sameId], { code: 0 });
+
 console.log("\nchanges e delete");
 expect("sync mostra a mudanca", ["sync"], { has: [id, "last_seq:"] });
 expect("delete apaga", ["delete", id], { code: 0 });

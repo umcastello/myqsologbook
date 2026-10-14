@@ -28,6 +28,7 @@ import Data.Either (Either(..))
 import Data.Foldable (all, intercalate)
 import Data.Int (fromString)
 import Data.Maybe (Maybe(..), fromMaybe, isNothing)
+import Data.Maidenhead (gridToCoordinates, normalizeGrid)
 import Data.QSO
   ( QSLStatus
   , allBands
@@ -38,14 +39,14 @@ import Data.QSO
   , parseQSLStatus
   , qslLabelPt
   )
-import Data.String (trim)
+import Data.String (take, trim)
 
 -- | O que a CLI sabe fazer.
 data Command
   = Add QSOInput
   | List QSOInput
   | Edit String QSOInput
-  | Show String
+  | Show String (Maybe String)
   | Delete String
   | SetQSL String QSLStatus
   | Sync
@@ -74,6 +75,8 @@ type QSOInput =
   , timestamp :: Maybe String
   , year :: Maybe Int
   , limit :: Maybe Int
+  , distance :: Boolean
+  , fromGrid :: Maybe String
   }
 
 emptyQSOInput :: QSOInput
@@ -93,6 +96,8 @@ emptyQSOInput =
   , timestamp: Nothing
   , year: Nothing
   , limit: Nothing
+  , distance: false
+  , fromGrid: Nothing
   }
 
 qslHelp :: String
@@ -107,7 +112,7 @@ parseArgs argv =
       "add" -> parseAdd (restOf argv)
       "list" -> parseList (restOf argv)
       "edit" -> parseEdit (restOf argv)
-      "show" -> oneId "show" Show (restOf argv)
+      "show" -> parseShow (restOf argv)
       "delete" -> oneId "delete" Delete (restOf argv)
       "qsl" -> parseSetQSL (restOf argv)
       "sync" -> noFlags "sync" Sync (restOf argv)
@@ -141,6 +146,43 @@ oneId name wrap rest = case length rest of
     Nothing -> Right (wrap "")
   0 -> Left ("falta o _id do QSO: " <> name <> " <id>")
   _ -> Left (name <> " aceita exatamente um _id, sem flags")
+
+-- | @show <id> [--from <grid>]@. O @_id@ vem primeiro e continua obrigatório;
+-- | @--from@ é só a origem do cálculo de distância, para quem quer medir sem
+-- | depender da estação gravada.
+parseShow :: Array String -> Either String Command
+parseShow args = case head args of
+  Nothing -> Left "falta o _id do QSO: show <id> [--from <grid>]"
+  Just raw ->
+    let docId = trim raw
+    in if docId == "" || isFlag docId
+        then Left "show espera o _id primeiro: show <id> [--from <grid>]"
+        else Show docId <$> parseShowFlags (restOf args) Nothing
+
+-- | Argumento que começa com @-@ é flag mal posicionada, e não um @_id@. Sem
+-- | esta checagem, @show --from GG66@ trataria @--from@ como o @_id@ e tentaria
+-- | buscar um documento com esse nome.
+isFlag :: String -> Boolean
+isFlag text = take 1 text == "-"
+
+parseShowFlags :: Array String -> Maybe String -> Either String (Maybe String)
+parseShowFlags rest acc = case head rest of
+  Nothing -> Right acc
+  Just "--from" -> case head (restOf rest) of
+    Nothing -> Left "--from precisa de valor"
+    Just value ->
+      validateGridFlag (trim value) (\grid -> parseShowFlags (restOf (restOf rest)) (Just grid))
+  Just other -> Left ("show não aceita flag: " <> other)
+
+-- | Confere o grid de @--from@ antes de qualquer ida ao banco, pela mesma razão
+-- | do resto do parser: um grid digitado errado é erro de uso, e vale 2 sem
+-- | custar uma requisição. Devolve o grid já normalizado.
+validateGridFlag :: forall a. String -> (String -> Either String a) -> Either String a
+validateGridFlag raw continue =
+  let grid = normalizeGrid raw
+  in case gridToCoordinates grid of
+    Left problem -> Left ("grid inválido para --from: " <> show problem)
+    Right _ -> continue grid
 
 parseSetQSL :: Array String -> Either String Command
 parseSetQSL rest = case length rest of
@@ -291,8 +333,16 @@ touchesNothing d =
     ]
 
 -- | Parser de @list@. Só filtros, nada de preenchimento.
+-- |
+-- | @--distance@ liga a coluna de quilômetros e @--from@ troca a origem do
+-- | cálculo. Os dois andam juntos: um @--from@ sozinho não mostraria coluna
+-- | nenhuma, e aceitar a flag sem efeito seria pior do que recusá-la.
 parseList :: Array String -> Either String Command
-parseList args = List <$> go args emptyQSOInput
+parseList args = do
+  parsed <- go args emptyQSOInput
+  case parsed.fromGrid of
+    Just _ | not parsed.distance -> Left "--from só faz sentido junto com --distance"
+    _ -> Right (List parsed)
   where
   go remaining acc = case head remaining of
     Nothing -> Right acc
@@ -306,6 +356,11 @@ parseList args = List <$> go args emptyQSOInput
     "--qsl" -> takeStr flag rest acc (\v a -> a { qslStatus = v })
     "--year" -> takeInt flag rest acc (\v a -> a { year = v })
     "--limit" -> takeInt flag rest acc (\v a -> a { limit = v })
+    "--distance" -> go rest (acc { distance = true })
+    "--from" -> case head rest of
+      Nothing -> Left "--from precisa de valor"
+      Just value ->
+        validateGridFlag (trim value) (\grid -> go (restOf rest) (acc { fromGrid = Just grid }))
     other -> Left ("flag desconhecida para list: " <> other)
 
   takeStr :: String -> Array String -> QSOInput -> (Maybe String -> QSOInput -> QSOInput) -> Either String QSOInput

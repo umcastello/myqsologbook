@@ -41,6 +41,13 @@ import Data.QSO
   , CallsignIssue(..)
   , qsoTimestampDay
   )
+import Data.Maidenhead
+  ( Coordinates
+  , distanceAndBearing
+  , formatBearing
+  , formatDistanceKm
+  , gridToCoordinates
+  )
 import Data.QSO.Codec (Filter, noFilter)
 import Data.Station (Station, emptyStationDraft, mergeStationDraft, newStation, stationCoordinates)
 import Effect (Effect)
@@ -48,7 +55,7 @@ import Effect.Aff (Aff, attempt, launchAff_)
 import Effect.Class (liftEffect)
 
 import CLI.Options (Command(..), QSOInput, StationInput, parseArgs)
-import CLI.Report (renderQSOTable, renderStation, renderUsage, renderChanges)
+import CLI.Report (renderQSOTableFrom, renderStation, renderUsage, renderChanges)
 import CouchDB (Config, CouchError(..), couchErrorMessage, ensureDatabase, ensureQSOIndex, fromEnv, ping)
 import Logbook
   ( addQSO
@@ -162,18 +169,22 @@ dispatch config command = case command of
     case toFilter input of
       Left problem -> pure (Left (UsageError problem))
       Right built -> do
-        result <- listQSOs config built
-        case result of
-          Left err -> pure (Left (RuntimeError (couchErrorMessage err)))
-          Right qsos ->
-            -- | Não há consulta extra para contar o resto. Uma página cheia
-            -- | não prova que existe algo depois dela, e a página vem
-            -- | limitada no servidor, então o texto é uma pista e não uma
-            -- | contagem inventada.
-            pure (Right [ renderQSOTable qsos
-                        , footerFor qsos
-                            <> (if length qsos < built.limit then "" else " (pode haver mais)")
-                        ])
+        origin <- listOrigin config input
+        case origin of
+          Left problem -> pure (Left (UsageError problem))
+          Right maybeOrigin -> do
+            result <- listQSOs config built
+            case result of
+              Left err -> pure (Left (RuntimeError (couchErrorMessage err)))
+              Right qsos ->
+                -- | Não há consulta extra para contar o resto. Uma página cheia
+                -- | não prova que existe algo depois dela, e a página vem
+                -- | limitada no servidor, então o texto é uma pista e não uma
+                -- | contagem inventada.
+                pure (Right [ renderQSOTableFrom maybeOrigin qsos
+                            , footerFor qsos
+                                <> (if length qsos < built.limit then "" else " (pode haver mais)")
+                            ])
   Edit docId input -> do
     found <- getQSO config docId
     case found of
@@ -185,11 +196,13 @@ dispatch config command = case command of
           pure $ case updated of
             Left err -> Left (RuntimeError (couchErrorMessage err))
             Right saved -> Right (["QSO atualizado.", ""] <> detail saved)
-  Show docId -> do
+  Show docId fromGrid -> do
     result <- getQSO config docId
-    pure $ case result of
-      Left err -> Left (RuntimeError (couchErrorMessage err))
-      Right qso -> Right (detail qso)
+    case result of
+      Left err -> pure (Left (RuntimeError (couchErrorMessage err)))
+      Right qso -> do
+        legs <- distanceLinesFor config fromGrid qso
+        pure (Right (detail qso <> legs))
   Add input -> do
     -- | O @timestamp@ precisa do relógio, que é Effect; @liftEffect@ sobe
     -- | para o Aff sem trocar de monad no meio do bloco.
@@ -336,6 +349,65 @@ detail qso =
   , "qsl:        " <> qslLabelPt qso.qslStatus
   , "dia:        " <> qsoTimestampDay qso
   ]
+
+-- | Distância e azimute da estação até o QSO: duas linhas quando dá para medir,
+-- | uma quando não dá.
+-- |
+-- | Quando não dá para medir, a linha de distância fica com um traço e diz o
+-- | motivo, em vez de sumir. Esconder a informação deixaria o usuário sem saber
+-- | se o QSO não tem grid, se a estação não foi configurada, ou se o cálculo
+-- | falhou. A linha de azimute só existe quando há distância, para não repetir
+-- | o motivo duas vezes.
+distanceLinesFor :: Config -> Maybe String -> QSO -> Aff (Array String)
+distanceLinesFor config fromGrid qso =
+  case coordsOf (fromMaybe "" qso.grid) of
+    Nothing -> pure [ "distancia:  - (QSO sem grid)" ]
+    Just dest -> do
+      origin <- showOrigin config fromGrid
+      pure $ case origin of
+        Nothing -> [ "distancia:  - (" <> semOrigem <> ")" ]
+        Just start ->
+          let leg = distanceAndBearing start dest
+          in [ "distancia:  " <> formatDistanceKm leg.distanceKm
+             , "azimute:    " <> formatBearing leg.azimuthDeg
+             ]
+
+-- | O que dizer quando não há de onde medir.
+semOrigem :: String
+semOrigem = "sem grid na estacao: grave com station --grid <seu-grid>, ou use --from <grid>"
+
+-- | Origem para o @show@: o @--from@ manda; sem ele, o grid gravado na
+-- | estação. Os dois são opcionais e falham em silêncio de propósito, porque o
+-- | @show@ continua válido sem distância — quem avisa é a linha de saída.
+showOrigin :: Config -> Maybe String -> Aff (Maybe Coordinates)
+showOrigin _ (Just grid) = pure (coordsOf grid)
+showOrigin config Nothing = do
+  result <- loadStation config
+  pure $ case result of
+    Right station -> either (const Nothing) Just (stationCoordinates station)
+    Left _ -> Nothing
+
+-- | Origem para o @list --distance@. Aqui a falta de origem é erro, e não
+-- | silêncio: quem pediu a coluna de km pediu a medida, e uma tabela sem a
+-- | coluna pareceria que deu certo. Sem @--distance@ nem se consulta a estação.
+listOrigin :: Config -> QSOInput -> Aff (Either String (Maybe Coordinates))
+listOrigin config input =
+  if not input.distance then pure (Right Nothing)
+  else case input.fromGrid of
+    Just grid -> pure (Right (coordsOf grid))
+    Nothing -> do
+      result <- loadStation config
+      pure $ case result of
+        Right station -> case stationCoordinates station of
+          Right coords -> Right (Just coords)
+          Left _ -> Left ("--distance " <> semOrigem)
+        Left _ -> Left ("--distance " <> semOrigem)
+
+-- | Coordenadas de um grid, ou @Nothing@ se ele não serve. O grid de @--from@
+-- | já chega validado do parser; o do QSO pode estar vazio ou torto, e um
+-- | contato sem grid não tem distância para medir.
+coordsOf :: String -> Maybe Coordinates
+coordsOf grid = either (const Nothing) Just (gridToCoordinates grid)
 
 -- | Converte os argumentos de @list@ no filtro Mango, validando cada um.
 -- | Falhar aqui, com o nome da flag, é mais útil do que o CouchDB devolver

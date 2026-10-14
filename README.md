@@ -73,6 +73,8 @@ depois de qualquer mudança em `src/`.
 ./qsologbook.mjs setup                              # cria banco e índice
 ./qsologbook.mjs add --callsign PY2ZZZ --band 20m --mode CW
 ./qsologbook.mjs list
+./qsologbook.mjs list --distance                     # coluna de km
+./qsologbook.mjs show qso_2026-09-30_PY2ZZZ          # detalhe + distancia e azimute
 ./qsologbook.mjs edit qso_2026-09-30_PY2ZZZ --band 40m
 ./qsologbook.mjs qsl qso_2026-09-30_PY2ZZZ confirmado
 ./qsologbook.mjs sync
@@ -86,6 +88,13 @@ sem o índice Mango o CouchDB responde `no_usable_index`.
 `edit` reusa as flags do `add` e só mexe no que for citado, mantendo o `_id` e
 a `_rev` do documento. Sem nenhuma flag ele recusa, em vez de reescrever o
 registro sem mudar nada.
+
+`list --distance` acrescenta uma coluna com a distância em km entre a estação e
+cada QSO, a partir dos dois grids Maidenhead. `show` mostra a mesma medida mais
+o azimute, sem precisar de flag. A origem é o grid da `station`; `--from <grid>`
+troca a origem sem mexer no que está gravado, e só faz sentido junto com
+`--distance` no `list`. QSO ou estação sem grid sai como `-`, com o motivo na
+saída — nunca um número inventado.
 
 Os códigos de saída servem para script:
 
@@ -111,7 +120,7 @@ npm run manual       # gera manual-qsologbook.pdf com pandoc + xelatex
 ## Verificar
 
 ```sh
-npm test           # 112 testes puros, sem servidor
+npm test           # 123 testes puros, sem servidor
 npm run check:cli  # ciclo inteiro da CLI, num banco temporário
 npm run serve      # em outro terminal, para o check:web
 npm run check:web  # 35 verificações no navegador

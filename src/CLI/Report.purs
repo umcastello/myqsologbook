@@ -6,6 +6,7 @@
 -- | tabela em vez de quebrar o alinhamento.
 module CLI.Report
   ( renderQSOTable
+  , renderQSOTableFrom
   , renderQSOColumns
   , renderStation
   , renderUsage
@@ -27,6 +28,12 @@ import Data.Foldable (foldl, intercalate)
 import Data.String as Str
 import Data.Maybe (Maybe(..), fromMaybe, maybe)
 import Data.String.CodeUnits (fromCharArray)
+import Data.Maidenhead
+  ( Coordinates
+  , distanceAndBearing
+  , formatDistanceKm
+  , gridToCoordinates
+  )
 import Data.QSO (QSO, bandLabel, modeLabel, qslLabelPt)
 import Data.Station (Station, describeStation)
 
@@ -58,10 +65,36 @@ renderQSOColumns qso =
 -- | decide o que dizer nesse caso é o rodapé, para a mensagem não sair duas
 -- | vezes.
 renderQSOTable :: Array QSO -> String
-renderQSOTable qsos =
+renderQSOTable = renderQSOTableFrom Nothing
+
+-- | A mesma tabela, com a coluna @km@ quando há uma origem para medir.
+-- |
+-- | A coluna é acrescentada no fim, e não calculada sempre, porque uma
+-- | listagem sem estação configurada não tem de onde medir: mostrar a coluna
+-- | cheia de traços sugeriria um erro de dado, quando o que falta é origem.
+renderQSOTableFrom :: Maybe Coordinates -> Array QSO -> String
+renderQSOTableFrom origin qsos =
   case Array.length qsos of
     0 -> ""
-    _ -> table (map renderQSOColumns qsos) headers
+    _ -> table (map (renderQSOColumnsFrom origin) qsos) (headersFrom origin)
+
+headersFrom :: Maybe Coordinates -> Array String
+headersFrom Nothing = headers
+headersFrom (Just _) = headers <> [ "km" ]
+
+renderQSOColumnsFrom :: Maybe Coordinates -> QSO -> Array String
+renderQSOColumnsFrom Nothing qso = renderQSOColumns qso
+renderQSOColumnsFrom (Just origin) qso = renderQSOColumns qso <> [ distanceCell origin qso ]
+
+-- | Quilômetros da origem até o QSO, ou @-@ quando o QSO não tem grid válido.
+-- | Azimute fica de fora desta tabela de propósito: uma coluna a mais em cada
+-- | linha custa largura, e a direção interessa para um contato por vez, que é o
+-- | caso do @show@.
+distanceCell :: Coordinates -> QSO -> String
+distanceCell origin qso =
+  case gridToCoordinates (fromMaybe "" qso.grid) of
+    Left _ -> "-"
+    Right dest -> formatDistanceKm (distanceAndBearing origin dest).distanceKm
 
 renderStation :: Station -> String
 renderStation station = describeStation station
@@ -205,6 +238,11 @@ renderUsage =
     , "  --qsl <status>"
     , "  --year <ano>"
     , "  --limit <n>"
+    , "  --distance                acrescenta a coluna de km"
+    , "  --from <grid>             origem da medida, em vez da estacao"
+    , ""
+    , "flags do show:"
+    , "  --from <grid>             origem da distancia, em vez da estacao"
     , ""
     , "flags do station (sem flag, so le):"
     , "  --callsign <indicativo>"

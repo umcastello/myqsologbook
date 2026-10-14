@@ -38,11 +38,13 @@ import CLI.Report
   ( padRight
   , renderChanges
   , renderQSOTable
+  , renderQSOTableFrom
   , renderStation
   , renderUsage
   , repeatChar
   , table
   )
+import Data.Maidenhead (distanceAndBearing, formatDistanceKm, gridToCoordinates)
 import Data.QSO (Band(..), Mode(..), QSO, QSLStatus(..), allBands, bandLabel, bandOptionsText)
 import Data.QSO.Codec (Change, decodeChanges, encodeFindRequest, filterSelector, noFilter)
 import Data.Station (Station, describeStation, emptyStationDraft, newStation)
@@ -122,7 +124,7 @@ verbOf (Right cmd) = case cmd of
   Add _ -> "add"
   List _ -> "list"
   Edit _ _ -> "edit"
-  Show _ -> "show"
+  Show _ _ -> "show"
   Delete _ -> "delete"
   SetQSL _ _ -> "qsl"
   Sync -> "sync"
@@ -221,7 +223,7 @@ optionsTests = do
   describe "show e delete" do
     it "pega o _id e apara espacos" do
       case parseArgs ["show", " qso_1 "] of
-        Right (Show docId) -> assertEq "_id aparado" "qso_1" docId
+        Right (Show docId _) -> assertEq "_id aparado" "qso_1" docId
         other -> abort ("esperava Show: " <> verbOf other)
     it "sem _id explica o uso" do
       assertHas "falta o _id" =<< expectLeft "show" (parseArgs ["show"])
@@ -229,7 +231,22 @@ optionsTests = do
       -- | @show --grid GG66@ listando nada e ainda dizendo que deu certo é o
       -- | pior resultado possível para uma CLI, então a flag extra não pode
       -- | passar em branco.
-      assertHas "aceita exatamente um _id" =<< expectLeft "show com flag" (parseArgs ["show", "qso_1", "--band", "20m"])
+      assertHas "não aceita flag" =<< expectLeft "show com flag" (parseArgs ["show", "qso_1", "--band", "20m"])
+    it "aceita --from com grid valido" do
+      case parseArgs ["show", "qso_1", "--from", "gg66rj"] of
+        Right (Show docId fromGrid) -> do
+          assertEq "_id" "qso_1" docId
+          assertEq "grid normalizado" (Just "GG66RJ") fromGrid
+        other -> abort ("esperava Show com --from: " <> verbOf other)
+    it "recusa --from com grid invalido" do
+      assertHas "grid inválido" =<< expectLeft "show --from ruim" (parseArgs ["show", "qso_1", "--from", "zz"])
+    it "recusa --from sem valor" do
+      assertHas "--from precisa de valor" =<< expectLeft "show --from seco" (parseArgs ["show", "qso_1", "--from"])
+    it "nao confunde flag com _id" do
+      -- | @show --from GG66@ por pouco não buscaria um documento chamado
+      -- | @--from@: o _id tem de vir antes, e um argumento com cara de flag é
+      -- | recusado em vez de virar chave de consulta.
+      assertHas "primeiro" =<< expectLeft "show com flag no lugar do id" (parseArgs ["show", "--from", "GG66"])
   describe "qsl" do
     it "id e status viram comando" do
       case parseArgs ["qsl", "qso_1", "Sent"] of
@@ -323,8 +340,29 @@ optionsTests = do
       assertHas "valor numérico inválido" =<< expectLeft "limit zero" (parseArgs ["list", "--limit", "zero"])
     it "sem flag, filtro vazio" do
       case inputOf (parseArgs ["list"]) of
-        Just input -> assert "callsign vazio" (isNothing input.callsign)
+        Just input -> do
+          assert "callsign vazio" (isNothing input.callsign)
+          assert "distance desligada por padrao" (not input.distance)
         Nothing -> abort "esperava um QSOInput"
+    it "--distance liga a coluna" do
+      case inputOf (parseArgs ["list", "--distance"]) of
+        Just input -> do
+          assert "distance ligada" input.distance
+          assert "sem --from" (isNothing input.fromGrid)
+        Nothing -> abort "esperava um QSOInput"
+    it "--from junto com --distance" do
+      case inputOf (parseArgs ["list", "--distance", "--from", "gg66rj"]) of
+        Just input -> do
+          assert "distance ligada" input.distance
+          assertEq "grid normalizado" (Just "GG66RJ") input.fromGrid
+        Nothing -> abort "esperava um QSOInput"
+    it "--from sozinho e recusado" do
+      -- | A flag sem efeito seria pior do que o erro: quem digitasse
+      -- | @--from GG66@ sem @--distance@ não veria coluna nenhuma e acharia
+      -- | que o grid foi ignorado.
+      assertHas "junto com --distance" =<< expectLeft "list --from seco" (parseArgs ["list", "--from", "GG66"])
+    it "--from com grid invalido e recusado" do
+      assertHas "grid inválido" =<< expectLeft "list --from ruim" (parseArgs ["list", "--distance", "--from", "zz"])
   describe "station" do
     it "sem flag e leitura" do
       assertEq "leitura"
@@ -383,6 +421,30 @@ reportTests = do
       let rendered = renderQSOTable [ sampleQso { callsign = "PY2ABCDEFGH" } ]
           colunas = split (Pattern "-+") (nthLine 1 rendered)
       assertEq "largura da coluna do indicativo" 11 (Str.length (at colunas 2))
+  describe "renderQSOTableFrom" do
+    -- | O QSO de exemplo não tem grid, então a distância some da linha e sobra
+    -- | o traço. É o caso real de quem registrou o contato sem grid locator.
+    it "QSO sem grid nao quebra a coluna" do
+      case gridToCoordinates "GG66rj" of
+        Left err -> abort ("grid base invalido: " <> show err)
+        Right base ->
+          let rendered = renderQSOTableFrom (Just base) [ sampleQso ]
+          in do
+            assertHas "km" rendered
+            assertHas "-" rendered
+    it "sem origem, nenhuma coluna km" do
+      -- | Tabela sem origem não pode ganhar coluna: uma coluna só de traços
+      -- | passaria a impressão de que os QSOs estão sem grid, quando o que
+      -- | falta é a estação.
+      let rendered = renderQSOTableFrom Nothing [ sampleQso ]
+      assertFalse "nao tem km" (contains (Pattern "km") rendered)
+    it "mede a distancia quando os dois lados tem grid" do
+      case gridToCoordinates "GG66rj", gridToCoordinates "GG77aa" of
+        Right base, Right dest ->
+          let rendered = renderQSOTableFrom (Just base) [ sampleQso { grid = Just "GG77aa" } ]
+              leg = distanceAndBearing base dest
+          in assertHas (formatDistanceKm leg.distanceKm) rendered
+        _, _ -> abort "grids base invalidos"
   describe "table" do
     -- | Os espaços à direita são o preenchimento e fazem parte do resultado
     -- | esperado. Não há como "limpar" esta string sem quebrar o teste.
