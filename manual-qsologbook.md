@@ -1,6 +1,7 @@
 ---
 title: "Manual & Roteiro de Testes — qsologbook.mjs"
-author: "Diário de campo de radioamador no CouchDB"
+subtitle: "Diário de campo de radioamador no CouchDB"
+author: "Ulisses Manzo Castello <umcastello@gmail.com>"
 date: "2026-10-01"
 toc: true
 toc-depth: 2
@@ -622,3 +623,9 @@ saídas) — com `breaklines,breakanywhere`, para que nenhuma linha ultrapasse a
 margem. Sem o `breakanywhere`, os separadores da tabela, que são só traços e
 `+`, continuariam estourando. A linha de continuação sai marcada com uma seta
 na margem esquerda.
+
+---
+
+## Autor
+
+Escrito por Ulisses Manzo Castello <umcastello@gmail.com>.

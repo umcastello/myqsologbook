@@ -228,6 +228,9 @@ expect("list depois do delete nao acha", ["list"], { has: ["nenhum QSO encontrad
 expect("sync mostra a remocao", ["sync"], { has: ["removido"] });
 
 console.log("\nargumentos e codigos de saida");
+// | help e version nao passam pelo banco: tem de responder mesmo sem credencial.
+expect("help credita o autor", ["help"], { has: ["Ulisses Manzo Castello <umcastello@gmail.com>"] });
+expect("version responde", ["version"], { code: 0 });
 expect("comando desconhecido", ["banana"], { code: 2, has: ["comando desconhecido"] });
 expect("show sem id", ["show"], { code: 2, has: ["falta o _id"] });
 expect("show com flag sobrando", ["show", id, "--band", "20m"], { code: 2 });

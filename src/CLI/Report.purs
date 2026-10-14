@@ -256,4 +256,7 @@ renderUsage =
     , "  COUCHDB_DB        padrão qsologbook"
     , "  COUCHDB_USER      opcional"
     , "  COUCHDB_PASSWORD  opcional"
+    , ""
+    , "autor:"
+    , "  Escrito por Ulisses Manzo Castello <umcastello@gmail.com>"
     ]

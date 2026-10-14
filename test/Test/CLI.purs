@@ -516,6 +516,8 @@ reportTests = do
     it "avisa que station sem flag so le" do
       -- | O @renderUsage@ é o único lugar que o usuário descobre isso.
       assertHas "(sem flag, so le)" renderUsage
+    it "credita o autor com nome e email" do
+      assertHas "Ulisses Manzo Castello <umcastello@gmail.com>" renderUsage
 
 -- | A linha @n@ do texto, contando do zero.
 nthLine :: Int -> String -> String
