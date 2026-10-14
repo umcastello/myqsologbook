@@ -7,6 +7,10 @@ toc-depth: 2
 numbersections: false
 geometry: margin=2.5cm
 fontsize: 11pt
+header-includes: |
+  \usepackage{fvextra}
+  \DefineVerbatimEnvironment{Highlighting}{Verbatim}{breaklines,breakanywhere,commandchars=\\\{\}}
+  \RecustomVerbatimEnvironment{verbatim}{Verbatim}{breaklines,breakanywhere}
 ---
 
 # Manual & Roteiro de Testes — `qsologbook.mjs`
@@ -438,7 +442,7 @@ curl -X DELETE http://127.0.0.1:5984/qsologbook_briga -u "admin:$COUCHDB_PASSWOR
 
 **Boas práticas:**
 
-- **Nunca teste no banco real.** Sempre `export COUCHDB_DB=qsologbook_briga` (ou outro nome).
+- **Nunca teste no banco real.** Sempre `export` `COUCHDB_DB=qsologbook_briga` (ou outro nome).
 - **Não coloque senha em texto puro** no `~/.bashrc` nem em transcripts.
 - **Faça backup** do banco real periodicamente (replicação CouchDB ou `curl` no `_all_docs`).
 - **Use `--timestamp`** para lançar contatos antigos retroativamente.
@@ -587,3 +591,14 @@ sudo apt install texlive-lang-portuguese
 
 Os emoji também saem de brinde: o DejaVu Sans não tem nenhum, e o que não
 existe na fonte vira caixa vazia no papel.
+
+**Blocos de código largos precisam quebrar linha.** A saída do `list` tem
+cerca de 90 colunas, mais do que a largura útil da página, e o `verbatim` do
+LaTeX não quebra linha sozinho: o texto passa da margem direita e some na
+borda do papel. O `header-includes` do frontmatter carrega o `fvextra` e
+recustomiza os dois ambientes que o pandoc usa — `Highlighting` (os blocos com
+linguagem, como o `bash`) e `verbatim` (os blocos sem linguagem, como as
+saídas) — com `breaklines,breakanywhere`, para que nenhuma linha ultrapasse a
+margem. Sem o `breakanywhere`, os separadores da tabela, que são só traços e
+`+`, continuariam estourando. A linha de continuação sai marcada com uma seta
+na margem esquerda.
