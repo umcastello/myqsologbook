@@ -8,6 +8,7 @@ import Prelude
 import Data.Argonaut.Core (Json, stringify)
 import Data.Argonaut.Parser (jsonParser)
 import Data.Base64 (decode, encode)
+import Data.ADIF (adifBand, adifDate, adifMode, adifRecord, adifTime, encodeField, renderADIF, utf8Length)
 import Data.Either (Either(..), isLeft)
 import Data.Maidenhead
 import Data.Maybe (Maybe(..), isJust, isNothing)
@@ -88,6 +89,7 @@ mainSuite = describe "Data.Base64" base64Tests
   <> describe "Data.Maidenhead" maidenheadTests
   <> describe "Data.QSO" qsoTests
   <> describe "Data.QSO.Codec" codecTests
+  <> describe "Data.ADIF" adifTests
   <> describe "Data.Station" stationTests
   <> cliTests
 
@@ -309,6 +311,73 @@ codecTests = do
             }
       back <- expectRight "station" (decodeStation (encodeStation st))
       equal st back
+
+adifTests :: TestSuite
+adifTests = do
+  describe "encodeField" do
+    it "monta o campo com o comprimento" do
+      equal "<CALL:6>PY2ABC" (encodeField "CALL" "PY2ABC")
+    it "conta bytes, e nao caracteres" do
+      -- | "São" tem 3 caracteres e 4 bytes em UTF-8; o ADIF conta os bytes.
+      equal "<QTH:4>São" (encodeField "QTH" "São")
+  describe "utf8Length" do
+    it "ascii, acento e fora do BMP" do
+      equal 1 (utf8Length "A")
+      equal 5 (utf8Length "café")
+      equal 4 (utf8Length "📡")
+  describe "adifBand" do
+    it "rotulo em maiusculas" do
+      equal "20M" (adifBand B20m)
+      equal "70CM" (adifBand B70cm)
+      equal "6M" (adifBand B6m)
+  describe "adifMode" do
+    it "PSK31 vira PSK com submode" do
+      let m = adifMode PSK31
+      equal "PSK" m.mode
+      equal (Just "PSK31") m.submode
+    it "Packet vira PKT, sem submode" do
+      let m = adifMode Packet
+      equal "PKT" m.mode
+      equal Nothing m.submode
+    it "os demais rotulos ja sao ADIF" do
+      equal "FT8" (adifMode FT8).mode
+      equal "SSB" (adifMode SSB).mode
+  describe "data e hora" do
+    it "quebra o timestamp ISO" do
+      equal "20260929" (adifDate "2026-09-29T21:42:41.000Z")
+      equal "214241" (adifTime "2026-09-29T21:42:41.000Z")
+    it "timestamp sem T trata tudo como data" do
+      equal "20260929" (adifDate "2026-09-29")
+      equal "" (adifTime "2026-09-29")
+  describe "adifRecord" do
+    it "traz os campos do QSO" do
+      let rec = adifRecord fullQso
+      assert ("call " <> rec) (contains (Pattern "<CALL:6>PY2UQH") rec)
+      assert ("data " <> rec) (contains (Pattern "<QSO_DATE:8>20260929") rec)
+      assert ("hora " <> rec) (contains (Pattern "<TIME_ON:6>120000") rec)
+      assert ("banda " <> rec) (contains (Pattern "<BAND:3>20M") rec)
+      assert ("modo " <> rec) (contains (Pattern "<MODE:3>SSB") rec)
+      assert ("grid " <> rec) (contains (Pattern "<GRIDSQUARE:4>GG66") rec)
+      assert ("qth " <> rec) (contains (Pattern "<QTH:9>Sao Paulo") rec)
+      assert ("dxcc " <> rec) (contains (Pattern "<APP_QSOLOGDB_DXCC:6>Brazil") rec)
+      assert ("notas " <> rec) (contains (Pattern "<COMMENT:16>primeiro contato") rec)
+      assert ("fim " <> rec) (contains (Pattern "<EOR>") rec)
+    it "grid sai em maiusculas" do
+      -- | O grid do QSO pode ter sido gravado em minusculas; o ADIF usa
+      -- | maiusculas, e um grid minusculo confunde quem importa.
+      let rec = adifRecord (fullQso { grid = Just "gg66rj" })
+      assert ("grid " <> rec) (contains (Pattern "<GRIDSQUARE:6>GG66RJ") rec)
+  describe "renderADIF" do
+    it "cabecalho e terminador" do
+      let out = renderADIF [ fullQso ]
+      assert ("cabecalho " <> out) (contains (Pattern "<ADIF_VER:5>3.1.4") out)
+      assert ("programa " <> out) (contains (Pattern "<PROGRAMID:10>qsologbook") out)
+      assert ("eoh " <> out) (contains (Pattern "<EOH>") out)
+      assert ("eor " <> out) (contains (Pattern "<EOR>") out)
+    it "log vazio ainda e um ADIF valido" do
+      let out = renderADIF []
+      assert ("cabecalho " <> out) (contains (Pattern "<EOH>") out)
+      assertFalse "sem EOR" (contains (Pattern "<EOR>") out)
 
 stationTests :: TestSuite
 stationTests = do

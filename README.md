@@ -77,6 +77,8 @@ depois de qualquer mudança em `src/`.
 ./qsologbook.mjs show qso_2026-09-30_PY2ZZZ          # detalhe + distancia e azimute
 ./qsologbook.mjs edit qso_2026-09-30_PY2ZZZ --band 40m
 ./qsologbook.mjs qsl qso_2026-09-30_PY2ZZZ confirmado
+./qsologbook.mjs export adif                          # log inteiro em ADIF
+./qsologbook.mjs export adif --year 2026 > log.adi    # so 2026, para arquivo
 ./qsologbook.mjs sync
 ./qsologbook.mjs delete qso_2026-09-30_PY2ZZZ
 ./qsologbook.mjs help
@@ -95,6 +97,14 @@ o azimute, sem precisar de flag. A origem é o grid da `station`; `--from <grid>
 troca a origem sem mexer no que está gravado, e só faz sentido junto com
 `--distance` no `list`. QSO ou estação sem grid sai como `-`, com o motivo na
 saída — nunca um número inventado.
+
+`export adif` emite o log em ADIF, o formato que qrz.com e qrzcq.com aceitam
+para importar. O formato é posicional (`export adif`), a saída vai para a saída
+padrão sem tabela nem rodapé — para redirecionar para um arquivo — e aceita os
+mesmos filtros do `list` (`--callsign`, `--band`, `--mode`, `--qsl`, `--year`,
+`--limit`), menos `--distance`/`--from`, que não têm o que medir num arquivo.
+`export cabrillo` é reconhecido, mas ainda não é emitido: Cabrillo é formato de
+contest e o diário não guarda a troca de cada contato.
 
 Os códigos de saída servem para script:
 
@@ -120,7 +130,7 @@ npm run manual       # gera manual-qsologbook.pdf com pandoc + xelatex
 ## Verificar
 
 ```sh
-npm test           # 123 testes puros, sem servidor
+npm test           # 144 testes puros, sem servidor
 npm run check:cli  # ciclo inteiro da CLI, num banco temporário
 npm run serve      # em outro terminal, para o check:web
 npm run check:web  # 35 verificações no navegador
@@ -145,6 +155,7 @@ Nenhum dos três toca o banco real.
 | --- | --- |
 | `src/Data/QSO.purs` | modelo de domínio: QSO, bandas, modos, QSL |
 | `src/Data/QSO/Codec.purs` | JSON dos documentos e dos requests Mango |
+| `src/Data/ADIF.purs` | encoder ADIF para o `export adif` |
 | `src/Logbook.purs` | operações no banco: add, update, delete, sync |
 | `src/CouchDB.purs` | HTTP, Basic auth, tradução de erro |
 | `src/CLI/Options.purs` | `argv` virando comando |

@@ -13,6 +13,7 @@
 -- |   @--band 20m@ no @add@ e ignorar a flag por engano.
 module CLI.Options
   ( Command(..)
+  , ExportFormat(..)
   , QSOInput(..)
   , emptyQSOInput
   , StationInput(..)
@@ -39,12 +40,13 @@ import Data.QSO
   , parseQSLStatus
   , qslLabelPt
   )
-import Data.String (take, trim)
+import Data.String (take, toLower, trim)
 
 -- | O que a CLI sabe fazer.
 data Command
   = Add QSOInput
   | List QSOInput
+  | Export ExportFormat QSOInput
   | Edit String QSOInput
   | Show String (Maybe String)
   | Delete String
@@ -55,6 +57,15 @@ data Command
   | Setup
   | Help
   | Version
+
+-- | Formatos de exportação. O @Cabrillo@ é de contest e ainda não é emitido;
+-- | existe aqui para o parser reconhecer o pedido e o @Main@ explicar a falta
+-- | em vez de dizer que o formato não existe.
+data ExportFormat = Adif | Cabrillo
+
+instance showExportFormat :: Show ExportFormat where
+  show Adif = "adif"
+  show Cabrillo = "cabrillo"
 
 -- | Campos de um QSO vindos da linha de comando. Tudo opcional aqui: quem
 -- | decide o que é obrigatório, e quais são os padrões, é o @Main@, que tem
@@ -111,6 +122,7 @@ parseArgs argv =
     Just verb -> case verb of
       "add" -> parseAdd (restOf argv)
       "list" -> parseList (restOf argv)
+      "export" -> parseExport (restOf argv)
       "edit" -> parseEdit (restOf argv)
       "show" -> parseShow (restOf argv)
       "delete" -> oneId "delete" Delete (restOf argv)
@@ -385,3 +397,58 @@ readInt = fromString
 -- | acontece de verdade.
 restOf :: forall a. Array a -> Array a
 restOf arr = fromMaybe [] (tail arr)
+
+-- | Parser de @export@. O formato é posicional e vem primeiro, como o @_id@
+-- | do @show@: @export adif@ e não @export --format adif@, porque o formato é
+-- | o que define a saída e não um ajuste dela.
+-- |
+-- | Depois do formato vêm os mesmos filtros do @list@, menos @--distance@ e
+-- | @--from@: não há o que medir num arquivo de exportação, e aceitar a flag
+-- | sem efeito seria pior do que recusá-la.
+parseExport :: Array String -> Either String Command
+parseExport args = case head args of
+  Nothing -> Left ("falta o formato: export <" <> exportHelp <> ">")
+  Just raw -> case parseExportFormat (trim raw) of
+    Left problem -> Left problem
+    Right format -> Export format <$> parseExportFlags (restOf args)
+
+exportHelp :: String
+exportHelp = intercalate ", " [ show Adif, show Cabrillo ]
+
+-- | O formato em qualquer caixa: @ADIF@, @adif@ e @Adif@ entram igual.
+parseExportFormat :: String -> Either String ExportFormat
+parseExportFormat raw = case toLower (trim raw) of
+  "adif" -> Right Adif
+  "cabrillo" -> Right Cabrillo
+  other -> Left ("formato desconhecido: " <> other <> " (use " <> exportHelp <> ")")
+
+-- | Só as flags de filtro do @list@, para o @export@. As flags de distância
+-- | ficam de fora de propósito.
+parseExportFlags :: Array String -> Either String QSOInput
+parseExportFlags args = go args emptyQSOInput
+  where
+  go remaining acc = case head remaining of
+    Nothing -> Right acc
+    Just flag -> step flag (restOf remaining) acc
+
+  step :: String -> Array String -> QSOInput -> Either String QSOInput
+  step flag rest acc = case flag of
+    "--callsign" -> takeStr flag rest acc (\v a -> a { callsign = v })
+    "--band" -> takeStr flag rest acc (\v a -> a { band = v })
+    "--mode" -> takeStr flag rest acc (\v a -> a { mode = v })
+    "--qsl" -> takeStr flag rest acc (\v a -> a { qslStatus = v })
+    "--year" -> takeInt flag rest acc (\v a -> a { year = v })
+    "--limit" -> takeInt flag rest acc (\v a -> a { limit = v })
+    other -> Left ("flag desconhecida para export: " <> other)
+
+  takeStr :: String -> Array String -> QSOInput -> (Maybe String -> QSOInput -> QSOInput) -> Either String QSOInput
+  takeStr flag rest acc setter = case head rest of
+    Nothing -> Left (flag <> " precisa de valor")
+    Just value -> go (restOf rest) (setter (Just (trim value)) acc)
+
+  takeInt :: String -> Array String -> QSOInput -> (Maybe Int -> QSOInput -> QSOInput) -> Either String QSOInput
+  takeInt flag rest acc setter = case head rest of
+    Nothing -> Left (flag <> " precisa de valor")
+    Just value -> case readInt (trim value) of
+      Just n -> go (restOf rest) (setter (Just n) acc)
+      Nothing -> Left ("valor numérico inválido para " <> flag <> ": " <> value)

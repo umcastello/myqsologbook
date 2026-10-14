@@ -49,12 +49,13 @@ import Data.Maidenhead
   , gridToCoordinates
   )
 import Data.QSO.Codec (Filter, noFilter)
+import Data.ADIF (renderADIF)
 import Data.Station (Station, emptyStationDraft, mergeStationDraft, newStation, stationCoordinates)
 import Effect (Effect)
 import Effect.Aff (Aff, attempt, launchAff_)
 import Effect.Class (liftEffect)
 
-import CLI.Options (Command(..), QSOInput, StationInput, parseArgs)
+import CLI.Options (Command(..), ExportFormat(..), QSOInput, StationInput, parseArgs)
 import CLI.Report (renderQSOTableFrom, renderStation, renderUsage, renderChanges)
 import CouchDB (Config, CouchError(..), couchErrorMessage, ensureDatabase, ensureQSOIndex, fromEnv, ping)
 import Logbook
@@ -185,6 +186,21 @@ dispatch config command = case command of
                             , footerFor qsos
                                 <> (if length qsos < built.limit then "" else " (pode haver mais)")
                             ])
+  -- | O export reusa o mesmo motor de consulta do @list@ e muda só a saída:
+  -- | aqui não há tabela nem rodapé, e sim o arquivo para redirecionar. Por
+  -- | isso a resposta é uma linha só, com as quebras de linha internas que o
+  -- | próprio ADIF traz.
+  Export format input -> case format of
+    Cabrillo ->
+      pure (Left (UsageError "export cabrillo ainda nao e suportado: use export adif"))
+    Adif ->
+      case toExportFilter input of
+        Left problem -> pure (Left (UsageError problem))
+        Right built -> do
+          result <- listQSOs config built
+          pure $ case result of
+            Left err -> Left (RuntimeError (couchErrorMessage err))
+            Right qsos -> Right [ renderADIF qsos ]
   Edit docId input -> do
     found <- getQSO config docId
     case found of
@@ -426,6 +442,20 @@ toFilter input = do
       , yearFilter = input.year
       , limit = fromMaybe 200 input.limit
       }
+
+-- | Filtro do @export@: igual ao do @list@, mas com um teto padrão alto.
+-- |
+-- | Exportar é tirar o log inteiro, não olhar a primeira página: o padrão de
+-- | 200 do @list@ cortaria a maior parte de um log antigo em silêncio, sem o
+-- | rodapé "pode haver mais" que avisa quem olha a tabela. O valor é o mesmo
+-- | teto que o @Logbook@ já impõe à consulta ao CouchDB.
+toExportFilter :: QSOInput -> Either String Filter
+toExportFilter input = do
+  built <- toFilter input
+  pure built { limit = fromMaybe exportLimit input.limit }
+
+exportLimit :: Int
+exportLimit = 1000
 
 -- | Valida um campo opcional, devolvendo o texto do erro com o nome do campo.
 optional :: forall a. String -> Maybe String -> (String -> Either String a) -> Either String (Maybe a)

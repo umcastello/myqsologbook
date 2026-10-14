@@ -123,6 +123,7 @@ verbOf (Left err) = "erro: " <> err
 verbOf (Right cmd) = case cmd of
   Add _ -> "add"
   List _ -> "list"
+  Export _ _ -> "export"
   Edit _ _ -> "edit"
   Show _ _ -> "show"
   Delete _ -> "delete"
@@ -138,6 +139,7 @@ verbOf (Right cmd) = case cmd of
 qsoInputOf :: Command -> Maybe QSOInput
 qsoInputOf (Add input) = Just input
 qsoInputOf (List input) = Just input
+qsoInputOf (Export _ input) = Just input
 qsoInputOf _ = Nothing
 
 -- | O @QSOInput@ direto, para os testes que já sabem que o comando deu certo.
@@ -363,6 +365,38 @@ optionsTests = do
       assertHas "junto com --distance" =<< expectLeft "list --from seco" (parseArgs ["list", "--from", "GG66"])
     it "--from com grid invalido e recusado" do
       assertHas "grid inválido" =<< expectLeft "list --from ruim" (parseArgs ["list", "--distance", "--from", "zz"])
+  describe "export" do
+    -- | O formato é posicional e vem antes dos filtros, como o _id do show. O
+    -- | comando precisa ser reconhecido no parser tambem quando o formato
+    -- | ainda nao tem emissor, para o usuario receber "ainda nao e suportado"
+    -- | e nao "comando desconhecido".
+    it "adif vira comando com o formato" do
+      case parseArgs ["export", "adif"] of
+        Right (Export format _) -> assertEq "formato" "adif" (show format)
+        other -> abort ("esperava Export: " <> verbOf other)
+    it "cabrillo e reconhecido mesmo sem emissor" do
+      case parseArgs ["export", "cabrillo"] of
+        Right (Export format _) -> assertEq "formato" "cabrillo" (show format)
+        other -> abort ("esperava Export: " <> verbOf other)
+    it "aceita os filtros do list" do
+      case inputOf (parseArgs ["export", "adif", "--band", "20m", "--limit", "5"]) of
+        Just input -> do
+          assertEq "banda" (Just "20m") input.band
+          assertEq "limit" (Just 5) input.limit
+        Nothing -> abort "esperava um QSOInput"
+    it "o formato nao muda o filtro padrao" do
+      case inputOf (parseArgs ["export", "adif"]) of
+        Just input -> assert "sem banda" (isNothing input.band)
+        Nothing -> abort "esperava um QSOInput"
+    it "sem formato explica o uso" do
+      assertHas "falta o formato" =<< expectLeft "export seco" (parseArgs ["export"])
+    it "formato inventado e erro" do
+      assertHas "formato desconhecido: csv" =<< expectLeft "export csv" (parseArgs ["export", "csv"])
+    it "recusa as flags de distancia, que sao do list" do
+      -- | Nao ha o que medir num arquivo de exportacao: aceitar --distance em
+      -- | silencio seria a flag sem efeito que o resto do parser ja recusa.
+      assertHas "flag desconhecida para export" =<< expectLeft "export --distance" (parseArgs ["export", "adif", "--distance"])
+      assertHas "flag desconhecida para export" =<< expectLeft "export --from" (parseArgs ["export", "adif", "--from", "GG66"])
   describe "station" do
     it "sem flag e leitura" do
       assertEq "leitura"
@@ -504,7 +538,9 @@ reportTests = do
       assertHas "removido" (renderChanges (jsonOf (changesWith "null" ",\"deleted\":true")))
   describe "renderUsage" do
     it "lista todo comando" do
-      each [ "add", "list", "show", "delete", "qsl", "sync", "station", "ping", "setup", "help", "version" ] (\name -> assertHas ("  " <> name) renderUsage)
+      each [ "add", "list", "export", "show", "delete", "qsl", "sync", "station", "ping", "setup", "help", "version" ] (\name -> assertHas ("  " <> name) renderUsage)
+    it "documenta os formatos do export" do
+      assertHas "export adif" renderUsage
     it "documenta o ambiente" do
       each [ "COUCHDB_URL", "COUCHDB_DB", "COUCHDB_USER", "COUCHDB_PASSWORD" ] (\name -> assertHas name renderUsage)
     it "documenta as flags do add" do

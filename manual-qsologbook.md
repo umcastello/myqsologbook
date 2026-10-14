@@ -416,7 +416,67 @@ last_seq: 8-…
 
 ---
 
-## 12. A página de verificação no navegador
+## 12. Exportando o log: `export`
+
+**Objetivo:** tirar os QSOs do diário num arquivo que outros serviços entendem.
+
+O formato é o **ADIF** (Amateur Data Interchange Format), que é o que o
+[qrz.com](https://www.qrz.com/) e o [qrzcq.com](https://www.qrzcq.com/) aceitam
+para importar um log. O comando escreve na saída padrão, então o normal é
+redirecionar para um arquivo:
+
+```bash
+./qsologbook.mjs export adif > log.adi
+```
+
+**Saída típica (recortada):**
+
+```
+<ADIF_VER:5>3.1.4<PROGRAMID:10>qsologbook<EOH>
+<CALL:6>PY2SSH <QSO_DATE:8>20260930 <TIME_ON:6>193446 <BAND:3>15M <MODE:2>CW <RST_SENT:3>599 <RST_RCVD:3>599 <GRIDSQUARE:6>GG66RJ <QSL_SENT:1>N <QSL_RCVD:1>Y <EOR>
+```
+
+Cada campo é `<NOME:TAMANHO>VALOR`; o cabeçalho termina em `<EOH>` e cada
+contato em `<EOR>`. O tamanho é contado em **bytes UTF-8**, e não em
+caracteres, para um `--notes` com acento não sair com o tamanho errado.
+
+**O que observar:**
+
+- O formato é **posicional** e vem primeiro: `export adif`.
+- A saída é ADIF puro, **sem tabela e sem rodapé**, para poder redirecionar
+  direto para um arquivo.
+- Aceita os mesmos filtros do `list`:
+
+  ```bash
+  ./qsologbook.mjs export adif --year 2026 --band 20m > 20m-2026.adi
+  ```
+
+- QSO sem grid, sem nome, sem QTH etc. simplesmente **não gera o campo**; não
+  sai campo vazio.
+- As flags `--distance` e `--from` são do `list` e são **recusadas** no
+  `export`: não há o que medir num arquivo.
+
+**Por que existe:** o diário é o seu arquivo, e travar os dados dentro do
+CouchDB não serve. O ADIF é o formato comum entre logbooks, então o `export` é
+a porta de saída.
+
+**O `export cabrillo` ainda não sai.** O Cabrillo é o formato de *contest*, e a
+especificação pede, por contato, o número de série e a troca (*exchange*) do
+concurso — coisas que um diário geral não guarda. O comando reconhece o pedido
+e responde que ainda não é suportado, em vez de inventar números.
+
+**Teste:** gere o arquivo e confira o conteúdo:
+
+```bash
+./qsologbook.mjs export adif > /tmp/log.adi
+head -2 /tmp/log.adi
+```
+
+A primeira linha tem o cabeçalho, e as seguintes, um `<EOR>` por contato.
+
+---
+
+## 13. A página de verificação no navegador
 
 **O que essa página é:** `web/index.html` **não** é a interface do diário. É uma
 página que roda a camada de dados pura no navegador, contra os módulos compilados
@@ -448,7 +508,7 @@ ainda não existe.
 
 ---
 
-## 13. Limpeza e boas práticas
+## 14. Limpeza e boas práticas
 
 **Ao terminar os testes:**
 
@@ -518,6 +578,7 @@ curl -X DELETE http://127.0.0.1:5984/qsologbook_briga -u "admin:$COUCHDB_PASSWOR
 | `station` | Lê/grava estação | `--callsign --grid --name --rig --antenna` |
 | `add` | Cria QSO | `--callsign --band --mode --rst-sent --rst-rcvd --notes --timestamp …` |
 | `list` | Lista QSOs | `--callsign --band --mode --qsl --year --limit --distance --from` |
+| `export` | Exporta o log | `adif` + filtros do `list` |
 | `show` | Vê 1 QSO | `<id> [--from]` |
 | `edit` | Corrige QSO | `<id>` + flags do `add` |
 | `qsl` | Muda status QSL | `<id> <status>` |
@@ -542,7 +603,7 @@ curl -X DELETE http://127.0.0.1:5984/qsologbook_briga -u "admin:$COUCHDB_PASSWOR
 ### Fluxo típico de uso
 
 ```
-ping → setup → station → add → list → show → edit → qsl → delete → sync
+ping → setup → station → add → list → show → edit → qsl → export → delete → sync
 ```
 
 ### Erros comuns e solução
@@ -551,6 +612,7 @@ ping → setup → station → add → list → show → edit → qsl → delete
 |------|-------|---------|
 | `comando desconhecido: --callsign` | Faltou o comando | Coloque `add`/`station`/etc. antes das flags |
 | `flag desconhecida para add: --rig` | Flag de outro comando | Veja `help`; `--rig` é só do `station` |
+| `export cabrillo ainda nao e suportado` | Formato de contest não implementado | Use `export adif` |
 | `No such file or directory` | Pasta errada | `cd ~/myqsologbook` |
 | `não consegui falar com o CouchDB` | Serviço parado | `podman ps \| grep couchdb`; se estiver `Exited`, `podman start couchdb` |
 | `_rev` conflito | Dois clientes editaram | Reabra com `show` e refaça o `edit` |
@@ -564,12 +626,14 @@ Este roteiro cobre **todos os comandos** do `qsologbook.mjs`. Se você seguiu na
 1. Entendeu o papel de cada variável de ambiente.
 2. Criou e leu a estação.
 3. Gravou, listou, inspecionou, editou, confirmou QSL e apagou um QSO.
-4. Viu o feed de mudanças (`sync`) e a página de verificação do navegador.
-5. Aprendeu RST, `_id` e `_rev`.
+4. Exportou o log em ADIF.
+5. Viu o feed de mudanças (`sync`) e a página de verificação do navegador.
+6. Aprendeu RST, `_id` e `_rev`.
 
 **Próximos passos sugeridos:**
 
 - Testar filtros combinados no `list`.
+- Importar o `log.adi` do `export` no qrz.com ou no qrzcq.com e conferir os contatos.
 - Criar QSOs com `--timestamp` retroativo e conferir no `list --year`.
 - Rodar `sync` após cada operação para ver a sequência crescer.
 - Abrir a página de verificação do navegador e passar `npm run check:web`.

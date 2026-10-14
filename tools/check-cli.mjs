@@ -221,6 +221,40 @@ expect("list sem --distance nao ganha coluna", ["list"], { missing: ["km"] });
 // | QSO, como antes de o calculo existir.
 if (sameId) expect("limpa o QSO de distancia", ["delete", sameId], { code: 0 });
 
+console.log("\nexport");
+// | O export reusa a consulta do list e troca a saida por ADIF puro: nada de
+// | tabela nem rodape, para o redirecionamento para um arquivo sair valido. O
+// | QSO do ciclo ja foi editado para 40m/CW, entao o registro tem de refletir
+// | isso e nao os valores originais.
+expect("export adif traz cabecalho e registro", ["export", "adif"], {
+  has: [
+    "<ADIF_VER:5>3.1.4",
+    "<PROGRAMID:10>qsologbook",
+    "<EOH>",
+    "<CALL:6>PY2ZZZ",
+    "<BAND:3>40M",
+    "<MODE:2>CW",
+    "<EOR>",
+  ],
+});
+// | Filtro sem resultado ainda e um ADIF valido: so o cabecalho, sem <EOR>.
+expect("export adif com filtro vazio nao inventa registro", ["export", "adif", "--band", "20m"], {
+  has: ["<EOH>"],
+  missing: ["<EOR>"],
+});
+// | Cabrillo e reconhecido pelo parser e recusado com a razao, em vez de o
+// | usuario ver "comando desconhecido" para um formato que a CLI conhece.
+expect("export cabrillo explica que ainda nao sai", ["export", "cabrillo"], {
+  code: 2, has: ["ainda nao e suportado"],
+});
+expect("export com formato inventado e erro", ["export", "csv"], {
+  code: 2, has: ["formato desconhecido"],
+});
+expect("export sem formato explica o uso", ["export"], { code: 2, has: ["falta o formato"] });
+expect("export recusa as flags de distancia", ["export", "adif", "--distance"], {
+  code: 2, has: ["flag desconhecida para export"],
+});
+
 console.log("\nchanges e delete");
 expect("sync mostra a mudanca", ["sync"], { has: [id, "last_seq:"] });
 expect("delete apaga", ["delete", id], { code: 0 });
