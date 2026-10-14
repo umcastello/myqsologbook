@@ -315,6 +315,16 @@ banda:      B15m
 
 **Teste de preservação:** anote o `data/hora` antes e depois do `edit` — deve ser idêntico.
 
+**Exemplo: corrigir o grid de um QSO.** Você gravou o contato sem grid e depois descobriu que o do PY2SSH era `GG66pk`. Basta citar o `--grid` no `edit`; nada mais muda:
+
+```bash
+./qsologbook.mjs list --callsign PY2SSH                  # descubra o _id
+./qsologbook.mjs edit qso_2026-09-30_PY2SSH --grid GG66pk
+./qsologbook.mjs show qso_2026-09-30_PY2SSH
+```
+
+O grid volta normalizado em maiúsculas (`gg66pk` vira `GG66PK`). Agora que o QSO tem grid, o `show` e o `list --distance` passam a calcular a distância a partir do grid da estação — antes disso, a medida saía como `-` com o motivo.
+
 ---
 
 ## 9. Ciclo de vida do QSL: `qsl`
