@@ -91,6 +91,16 @@ export COUCHDB_DB=qsologbook_briga
 
 **Se `ping` falhar:** verifique se o container está rodando (`podman ps | grep couchdb`) e se a URL/porta conferem.
 
+> **Dica:** se o ping falhar e o container estiver desligado, ligue-o com
+> `podman start couchdb` e teste de novo. O container já criado guarda os dados
+> no volume, então `start` não perde nada:
+>
+> ```bash
+> podman ps -a           # confirma que couchdb esta "Exited"
+> podman start couchdb   # liga o container que ja existe
+> ./qsologbook.mjs ping  # -> CouchDB responde.
+> ```
+
 ---
 
 ## 4. Sua estação: `station`
@@ -541,7 +551,7 @@ ping → setup → station → add → list → show → edit → qsl → delete
 | `comando desconhecido: --callsign` | Faltou o comando | Coloque `add`/`station`/etc. antes das flags |
 | `flag desconhecida para add: --rig` | Flag de outro comando | Veja `help`; `--rig` é só do `station` |
 | `No such file or directory` | Pasta errada | `cd ~/myqsologbook` |
-| `não consegui falar com o CouchDB` | Serviço parado | `podman ps \| grep couchdb` |
+| `não consegui falar com o CouchDB` | Serviço parado | `podman ps \| grep couchdb`; se estiver `Exited`, `podman start couchdb` |
 | `_rev` conflito | Dois clientes editaram | Reabra com `show` e refaça o `edit` |
 
 ---
